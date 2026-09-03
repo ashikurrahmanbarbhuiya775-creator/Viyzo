@@ -1,3 +1,95 @@
 package com.viyzo.app;
-import android.app.Activity; import android.os.Bundle; import android.graphics.Color; import android.view.Gravity; import android.widget.TextView;
-public class MainActivity extends Activity { public void onCreate(Bundle b){ super.onCreate(b); TextView t=new TextView(this); t.setText("Viyzo"); t.setTextSize(32); t.setTextColor(Color.WHITE); t.setGravity(Gravity.CENTER); t.setBackgroundColor(Color.rgb(20,20,24)); setContentView(t); } }
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+public class MainActivity extends Activity {
+
+    int white = Color.WHITE;
+    int gray = Color.rgb(180, 180, 185);
+    int dark = Color.rgb(15, 15, 20);
+    int card = Color.rgb(30, 30, 38);
+
+    @Override
+    public void onCreate(Bundle b) {
+        super.onCreate(b);
+
+        LinearLayout main = new LinearLayout(this);
+        main.setOrientation(LinearLayout.VERTICAL);
+        main.setBackgroundColor(dark);
+
+        TextView title = new TextView(this);
+        title.setText("VIYZO");
+        title.setTextColor(white);
+        title.setTextSize(28);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, 35, 0, 25);
+        main.addView(title);
+
+        ScrollView scroll = new ScrollView(this);
+
+        LinearLayout feed = new LinearLayout(this);
+        feed.setOrientation(LinearLayout.VERTICAL);
+        feed.setPadding(20, 10, 20, 20);
+
+        TextView video = new TextView(this);
+        video.setText("▶\n\nViyzo Video\n\nShort videos यहाँ दिखाई देंगे");
+        video.setTextColor(white);
+        video.setTextSize(22);
+        video.setGravity(Gravity.CENTER);
+        video.setBackgroundColor(card);
+        video.setPadding(10, 120, 10, 120);
+
+        feed.addView(video);
+
+        TextView caption = new TextView(this);
+        caption.setText("❤️  Like     💬  Comment     ↗  Share");
+        caption.setTextColor(white);
+        caption.setTextSize(17);
+        caption.setPadding(10, 20, 10, 25);
+        feed.addView(caption);
+
+        scroll.addView(feed);
+        main.addView(scroll,
+                new LinearLayout.LayoutParams(
+                        -1, 0, 1));
+
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
+        bottom.setGravity(Gravity.CENTER);
+
+        Button home = new Button(this);
+        home.setText("Home");
+        home.setTextColor(white);
+        home.setOnClickListener(v ->
+                Toast.makeText(this, "Home", Toast.LENGTH_SHORT).show());
+
+        Button upload = new Button(this);
+        upload.setText("＋ Upload");
+        upload.setOnClickListener(v ->
+                Toast.makeText(this, "Upload feature जल्द आएगा", Toast.LENGTH_SHORT).show());
+
+        Button profile = new Button(this);
+        profile.setText("Profile");
+        profile.setOnClickListener(v ->
+                Toast.makeText(this, "Profile", Toast.LENGTH_SHORT).show());
+
+        bottom.addView(home, new LinearLayout.LayoutParams(0, 70, 1));
+        bottom.addView(upload, new LinearLayout.LayoutParams(0, 70, 1));
+        bottom.addView(profile, new LinearLayout.LayoutParams(0, 70, 1));
+
+        main.addView(bottom);
+
+        setContentView(main);
+    }
+}
