@@ -34,10 +34,13 @@ jobs:
       - name: Copy MainActivity.java
         run: |
           TARGET=$(find "$PROJECT_DIR" -path '*/src/main/java/com/viyzo/app/MainActivity.java' -print -quit)
-          cp MainActivity.java "$TARGE
-  - name: Add Firebase config
-  run: |
-    cp google-services.json "$PROJECT_DIR/app/google-services.json"
+          cp MainActivity.java "$TARGET"
+
+      - name: Add Firebase config
+        run: |
+          cp google-services.json "$PROJECT_DIR/app/google-services.json"
+
+      - name: Build APK
         run: |
           cd "$PROJECT_DIR"
           gradle assembleDebug --no-daemon
@@ -46,5 +49,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Viyzo-APK
-          path: |
-            ${{ env.PROJECT_DIR }}/**/*.apk
+          path: ${{ env.PROJECT_DIR }}/**/*.apk
