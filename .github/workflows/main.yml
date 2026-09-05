@@ -25,13 +25,16 @@ jobs:
         run: |
           mkdir project
           unzip -q Viyzo-Android-Starter.zip -d project
-          echo "Project files:"
-          find project -maxdepth 4 -type f | head -100
 
       - name: Find Android project
         run: |
           PROJECT_DIR=$(find project -name settings.gradle -type f -print -quit | xargs dirname)
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Copy MainActivity.java
+        run: |
+          TARGET=$(find "$PROJECT_DIR" -path '*/src/main/java/com/viyzo/app/MainActivity.java' -print -quit)
+          cp MainActivity.java "$TARGET"
 
       - name: Build APK
         run: |
