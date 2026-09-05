@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "391555462476",
+    "project_id": "viyzo-6f1cf",
+    "storage_bucket": "viyzo-6f1cf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:391555462476:android:14e5ace0a1040b555f8be9",
+        "android_client_info": {
+          "package_name": "com.viyzo.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCo0r7sa35IfF5n_9prnOWm0oMmQhBfJBI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
