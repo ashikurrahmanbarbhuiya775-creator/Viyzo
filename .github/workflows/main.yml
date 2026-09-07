@@ -84,6 +84,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import os
+          import re
 
           project = Path(os.environ["PROJECT_DIR"])
           manifest = project / "app" / "src" / "main" / "AndroidManifest.xml"
@@ -93,12 +94,12 @@ jobs:
           permission = '<uses-permission android:name="android.permission.INTERNET" />'
 
           if permission not in text:
-              text = text.replace(
-                  "<manifest",
-                  "<manifest"
+              text = re.sub(
+                  r'(<manifest\b[^>]*>)',
+                  r'\1\n    ' + permission,
+                  text,
+                  count=1
               )
-              pos = text.find(">")
-              text = text[:pos+1] + "\n    " + permission + text[pos+1:]
 
           manifest.write_text(text)
           PY
