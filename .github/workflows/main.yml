@@ -54,26 +54,53 @@ jobs:
           }
 
           """ + text
+              root.write_text(text)
 
-          root.write_text(text)
-
-          app = project / "app/build.gradle"
+          app = project / "app" / "build.gradle"
           text = app.read_text()
 
           if "apply plugin: 'com.google.gms.google-services'" not in text:
-              text += "\napply plugin: 'com.google.gms.google-services'\n"
+              text += """
 
-          if "firebase-bom" not in text:
-              text = text.replace(
-                  "dependencies {",
-                  """dependencies {
+          apply plugin: 'com.google.gms.google-services'
+          """
+
+          firebase = """
+          dependencies {
               implementation platform('com.google.firebase:firebase-bom:34.18.0')
               implementation 'com.google.firebase:firebase-auth'
-              implementation 'com.google.firebase:firebase-firestore'""",
-                  1
-              )
+              implementation 'com.google.firebase:firebase-firestore'
+          }
+          """
+
+          if "com.google.firebase:firebase-auth" not in text:
+              text += firebase
 
           app.write_text(text)
+          PY
+
+      - name: Add Internet permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          project = Path(os.environ["PROJECT_DIR"])
+          manifest = project / "app" / "src" / "main" / "AndroidManifest.xml"
+
+          text = manifest.read_text()
+
+          permission = '<uses-permission android:name="android.permission.INTERNET" />'
+
+          if permission not in text:
+              text = text.replace(
+                  "<manifest",
+                  "<manifest"
+              )
+              pos = text.find(">")
+              text = text[:pos+1] + "\n    " + permission + text[pos+1:]
+
+          manifest.write_text(text)
           PY
 
       - name: Copy MainActivity.java
