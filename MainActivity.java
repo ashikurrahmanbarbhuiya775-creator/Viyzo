@@ -6,16 +6,25 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.*;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.FirebaseFirestore;
+
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MainActivity extends Activity {
 
     LinearLayout main;
     SharedPreferences prefs;
+
+    FirebaseAuth auth;
+    FirebaseFirestore db;
 
     int likeCount = 12;
     boolean liked = false;
@@ -51,6 +60,9 @@ public class MainActivity extends Activity {
 
         prefs = getSharedPreferences("viyzo", MODE_PRIVATE);
 
+        auth = FirebaseAuth.getInstance();
+        db = FirebaseFirestore.getInstance();
+
         comments.add("Nice video!");
         messages.add("Welcome to VIYZO Messenger");
 
@@ -76,10 +88,35 @@ public class MainActivity extends Activity {
     void showHome() {
         baseScreen("VIYZO");
 
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            TextView welcome = text(
+                    "WELCOME TO VIYZO\n\nLogin or Signup to continue",
+                    20
+            );
+            welcome.setGravity(Gravity.CENTER);
+
+            main.addView(welcome,
+                    new LinearLayout.LayoutParams(-1, dp(180)));
+
+            Button login = button("LOGIN");
+            Button signup = button("SIGNUP");
+
+            main.addView(login);
+            main.addView(signup);
+
+            login.setOnClickListener(v -> showLogin());
+            signup.setOnClickListener(v -> showSignup());
+
+            return;
+        }
+
         TextView videoTitle = text(
                 "VIYZO VIDEO\n\nShort videos will appear here",
                 19
         );
+
         videoTitle.setGravity(Gravity.CENTER);
         videoTitle.setBackgroundColor(0xFF222222);
 
@@ -95,6 +132,7 @@ public class MainActivity extends Activity {
             controller.setAnchorView(video);
 
             main.removeView(videoTitle);
+
             main.addView(video,
                     new LinearLayout.LayoutParams(-1, dp(300)));
 
@@ -110,8 +148,10 @@ public class MainActivity extends Activity {
 
         actions.addView(like,
                 new LinearLayout.LayoutParams(0, dp(55), 1));
+
         actions.addView(comment,
                 new LinearLayout.LayoutParams(0, dp(55), 1));
+
         actions.addView(share,
                 new LinearLayout.LayoutParams(0, dp(55), 1));
 
@@ -120,11 +160,15 @@ public class MainActivity extends Activity {
         LinearLayout second = new LinearLayout(this);
         second.setOrientation(LinearLayout.HORIZONTAL);
 
-        Button follow = button(followed ? "FOLLOWING" : "FOLLOW");
+        Button follow = button(
+                followed ? "FOLLOWING" : "FOLLOW"
+        );
+
         Button messenger = button("MESSENGER");
 
         second.addView(follow,
                 new LinearLayout.LayoutParams(0, dp(55), 1));
+
         second.addView(messenger,
                 new LinearLayout.LayoutParams(0, dp(55), 1));
 
@@ -139,6 +183,7 @@ public class MainActivity extends Activity {
         main.addView(commentList);
 
         like.setOnClickListener(v -> {
+
             if (!liked) {
                 likeCount++;
                 liked = true;
@@ -153,24 +198,37 @@ public class MainActivity extends Activity {
         comment.setOnClickListener(v -> showCommentBox());
 
         share.setOnClickListener(v -> {
-            Intent shareIntent = new Intent(Intent.ACTION_SEND);
+
+            Intent shareIntent =
+                    new Intent(Intent.ACTION_SEND);
+
             shareIntent.setType("text/plain");
+
             shareIntent.putExtra(
                     Intent.EXTRA_TEXT,
                     "Watch this video on VIYZO!"
             );
-            startActivity(Intent.createChooser(
-                    shareIntent,
-                    "Share VIYZO Video"
-            ));
+
+            startActivity(
+                    Intent.createChooser(
+                            shareIntent,
+                            "Share VIYZO Video"
+                    )
+            );
         });
 
         follow.setOnClickListener(v -> {
+
             followed = !followed;
-            follow.setText(followed ? "FOLLOWING" : "FOLLOW");
+
+            follow.setText(
+                    followed ? "FOLLOWING" : "FOLLOW"
+            );
         });
 
-        messenger.setOnClickListener(v -> showMessenger());
+        messenger.setOnClickListener(
+                v -> showMessenger()
+        );
 
         addBottomNavigation();
     }
@@ -180,31 +238,36 @@ public class MainActivity extends Activity {
         final EditText input = new EditText(this);
         input.setHint("Write a comment");
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Comment")
-                .setView(input)
-                .setNegativeButton("CANCEL", null)
-                .setPositiveButton("POST", null)
-                .create();
+        AlertDialog dialog =
+                new AlertDialog.Builder(this)
+                        .setTitle("Comment")
+                        .setView(input)
+                        .setNegativeButton("CANCEL", null)
+                        .setPositiveButton("POST", null)
+                        .create();
 
         dialog.setOnShowListener(d -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                    .setOnClickListener(v -> {
 
-                        String c = input.getText().toString().trim();
+            dialog.getButton(
+                    AlertDialog.BUTTON_POSITIVE
+            ).setOnClickListener(v -> {
 
-                        if (!c.isEmpty()) {
-                            comments.add(c);
-                            dialog.dismiss();
-                            showHome();
-                        }
-                    });
+                String c =
+                        input.getText().toString().trim();
+
+                if (!c.isEmpty()) {
+                    comments.add(c);
+                    dialog.dismiss();
+                    showHome();
+                }
+            });
         });
 
         dialog.show();
     }
 
     void showMessenger() {
+
         baseScreen("MESSENGER");
 
         TextView list = text("", 17);
@@ -213,32 +276,48 @@ public class MainActivity extends Activity {
             list.append("\n💬 " + m + "\n");
         }
 
-        main.addView(list,
+        main.addView(
+                list,
                 new LinearLayout.LayoutParams(
                         -1, 0, 1
-                ));
+                )
+        );
 
-        LinearLayout sendBox = new LinearLayout(this);
-        sendBox.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout sendBox =
+                new LinearLayout(this);
+
+        sendBox.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
 
         EditText message = new EditText(this);
+
         message.setHint("Type message");
         message.setTextColor(0xFFFFFFFF);
         message.setHintTextColor(0xFFAAAAAA);
 
         Button send = button("SEND");
 
-        sendBox.addView(message,
-                new LinearLayout.LayoutParams(0, dp(60), 1));
+        sendBox.addView(
+                message,
+                new LinearLayout.LayoutParams(
+                        0, dp(60), 1
+                )
+        );
 
-        sendBox.addView(send,
-                new LinearLayout.LayoutParams(dp(100), dp(60)));
+        sendBox.addView(
+                send,
+                new LinearLayout.LayoutParams(
+                        dp(100), dp(60)
+                )
+        );
 
         main.addView(sendBox);
 
         send.setOnClickListener(v -> {
 
-            String m = message.getText().toString().trim();
+            String m =
+                    message.getText().toString().trim();
 
             if (!m.isEmpty()) {
                 messages.add(m);
@@ -250,22 +329,26 @@ public class MainActivity extends Activity {
     }
 
     void showProfile() {
+
         baseScreen("PROFILE");
 
-        String name = prefs.getString("name", "");
+        FirebaseUser user = auth.getCurrentUser();
 
-        if (name.isEmpty()) {
+        if (user == null) {
 
             TextView info = text(
                     "Welcome to VIYZO\n\nPlease Login or Signup",
                     19
             );
+
             info.setGravity(Gravity.CENTER);
 
-            main.addView(info,
+            main.addView(
+                    info,
                     new LinearLayout.LayoutParams(
                             -1, dp(150)
-                    ));
+                    )
+            );
 
             Button login = button("LOGIN");
             Button signup = button("SIGNUP");
@@ -273,28 +356,60 @@ public class MainActivity extends Activity {
             main.addView(login);
             main.addView(signup);
 
-            login.setOnClickListener(v -> showLogin());
-            signup.setOnClickListener(v -> showSignup());
+            login.setOnClickListener(
+                    v -> showLogin()
+            );
+
+            signup.setOnClickListener(
+                    v -> showSignup()
+            );
 
         } else {
 
+            String email = user.getEmail();
+
+            String name =
+                    prefs.getString("name", "");
+
+            if (name.isEmpty()) {
+                name = email;
+            }
+
             TextView profile = text(
-                    "👤 PROFILE\n\nName: " + name +
+                    "👤 PROFILE\n\nName: " +
+                    name +
+                    "\n\nEmail: " +
+                    email +
                     "\n\nWelcome to VIYZO!",
                     20
             );
 
-            main.addView(profile,
+            main.addView(
+                    profile,
                     new LinearLayout.LayoutParams(
-                            -1, dp(220)
-                    ));
+                            -1, dp(240)
+                    )
+            );
 
             Button logout = button("LOGOUT");
+
             main.addView(logout);
 
             logout.setOnClickListener(v -> {
-                prefs.edit().clear().apply();
-                showProfile();
+
+                auth.signOut();
+
+                prefs.edit()
+                        .clear()
+                        .apply();
+
+                Toast.makeText(
+                        this,
+                        "Logged out",
+                        Toast.LENGTH_SHORT
+                ).show();
+
+                showHome();
             });
         }
 
@@ -302,18 +417,28 @@ public class MainActivity extends Activity {
     }
 
     void showLogin() {
+
         baseScreen("LOGIN");
 
         EditText email = new EditText(this);
+
         email.setHint("Email");
         email.setTextColor(0xFFFFFFFF);
         email.setHintTextColor(0xFFAAAAAA);
+        email.setInputType(
+                InputType.TYPE_CLASS_TEXT |
+                InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+        );
 
         EditText password = new EditText(this);
+
         password.setHint("Password");
         password.setTextColor(0xFFFFFFFF);
         password.setHintTextColor(0xFFAAAAAA);
-        password.setInputType(0x81);
+        password.setInputType(
+                InputType.TYPE_CLASS_TEXT |
+                InputType.TYPE_TEXT_VARIATION_PASSWORD
+        );
 
         Button login = button("LOGIN");
 
@@ -323,59 +448,102 @@ public class MainActivity extends Activity {
 
         login.setOnClickListener(v -> {
 
-            String e = email.getText().toString().trim();
+            String e =
+                    email.getText().toString().trim();
+
+            String p =
+                    password.getText().toString();
 
             if (e.isEmpty()) {
+
                 Toast.makeText(
                         this,
                         "Email डालिए",
                         Toast.LENGTH_SHORT
                 ).show();
+
                 return;
             }
 
-            String name = e;
+            if (p.isEmpty()) {
 
-            prefs.edit()
-                    .putString("name", name)
-                    .apply();
+                Toast.makeText(
+                        this,
+                        "Password डालिए",
+                        Toast.LENGTH_SHORT
+                ).show();
 
-            Toast.makeText(
-                    this,
-                    "Login successful",
-                    Toast.LENGTH_SHORT
-            ).show();
+                return;
+            }
 
-            showProfile();
+            login.setEnabled(false);
+
+            auth.signInWithEmailAndPassword(e, p)
+                    .addOnCompleteListener(task -> {
+
+                        login.setEnabled(true);
+
+                        if (task.isSuccessful()) {
+
+                            Toast.makeText(
+                                    this,
+                                    "Login successful",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            showHome();
+
+                        } else {
+
+                            Toast.makeText(
+                                    this,
+                                    "Login failed: " +
+                                    task.getException()
+                                    .getMessage(),
+                                    Toast.LENGTH_LONG
+                            ).show();
+                        }
+                    });
         });
 
-        Button signup = button("CREATE NEW ACCOUNT");
+        Button signup =
+                button("CREATE NEW ACCOUNT");
 
         main.addView(signup);
 
-        signup.setOnClickListener(v -> showSignup());
+        signup.setOnClickListener(
+                v -> showSignup()
+        );
 
         addBackButton();
     }
 
     void showSignup() {
+
         baseScreen("SIGNUP");
 
         EditText name = new EditText(this);
+
         name.setHint("Your Name");
         name.setTextColor(0xFFFFFFFF);
         name.setHintTextColor(0xFFAAAAAA);
 
         EditText email = new EditText(this);
+
         email.setHint("Email");
         email.setTextColor(0xFFFFFFFF);
         email.setHintTextColor(0xFFAAAAAA);
 
         EditText password = new EditText(this);
+
         password.setHint("Password");
         password.setTextColor(0xFFFFFFFF);
         password.setHintTextColor(0xFFAAAAAA);
-        password.setInputType(0x81);
+
+        password.setInputType(
+                InputType.TYPE_CLASS_TEXT |
+                InputType.TYPE_TEXT_VARIATION_PASSWORD
+        );
 
         Button signup = button("SIGN UP");
 
@@ -386,41 +554,125 @@ public class MainActivity extends Activity {
 
         signup.setOnClickListener(v -> {
 
-            String n = name.getText().toString().trim();
+            String n =
+                    name.getText().toString().trim();
+
+            String e =
+                    email.getText().toString().trim();
+
+            String p =
+                    password.getText().toString();
 
             if (n.isEmpty()) {
+
                 Toast.makeText(
                         this,
                         "Name डालिए",
                         Toast.LENGTH_SHORT
                 ).show();
+
                 return;
             }
 
-            prefs.edit()
-                    .putString("name", n)
-                    .apply();
+            if (e.isEmpty()) {
 
-            Toast.makeText(
-                    this,
-                    "Account created",
-                    Toast.LENGTH_SHORT
-            ).show();
+                Toast.makeText(
+                        this,
+                        "Email डालिए",
+                        Toast.LENGTH_SHORT
+                ).show();
 
-            showProfile();
+                return;
+            }
+
+            if (p.length() < 6) {
+
+                Toast.makeText(
+                        this,
+                        "Password कम से कम 6 अक्षर का रखें",
+                        Toast.LENGTH_SHORT
+                ).show();
+
+                return;
+            }
+
+            signup.setEnabled(false);
+
+            auth.createUserWithEmailAndPassword(e, p)
+                    .addOnCompleteListener(task -> {
+
+                        if (task.isSuccessful()) {
+
+                            FirebaseUser user =
+                                    auth.getCurrentUser();
+
+                            if (user != null) {
+
+                                Map<String, Object> data =
+                                        new HashMap<>();
+
+                                data.put("name", n);
+                                data.put("email", e);
+
+                                db.collection("users")
+                                        .document(user.getUid())
+                                        .set(data);
+                            }
+
+                            prefs.edit()
+                                    .putString("name", n)
+                                    .apply();
+
+                            Toast.makeText(
+                                    this,
+                                    "Account created successfully",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            showHome();
+
+                        } else {
+
+                            signup.setEnabled(true);
+
+                            Toast.makeText(
+                                    this,
+                                    "Signup failed: " +
+                                    task.getException()
+                                    .getMessage(),
+                                    Toast.LENGTH_LONG
+                            ).show();
+                        }
+                    });
         });
+
+        Button login =
+                button("ALREADY HAVE AN ACCOUNT? LOGIN");
+
+        main.addView(login);
+
+        login.setOnClickListener(
+                v -> showLogin()
+        );
 
         addBackButton();
     }
 
     void uploadVideo() {
 
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        Intent intent =
+                new Intent(Intent.ACTION_OPEN_DOCUMENT);
 
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addCategory(
+                Intent.CATEGORY_OPENABLE
+        );
+
         intent.setType("video/*");
 
-        startActivityForResult(intent, 100);
+        startActivityForResult(
+                intent,
+                100
+        );
     }
 
     @Override
@@ -429,6 +681,7 @@ public class MainActivity extends Activity {
             int resultCode,
             Intent data
     ) {
+
         super.onActivityResult(
                 requestCode,
                 resultCode,
@@ -462,30 +715,51 @@ public class MainActivity extends Activity {
                 )
         );
 
-        LinearLayout nav = new LinearLayout(this);
+        LinearLayout nav =
+                new LinearLayout(this);
 
-        nav.setOrientation(LinearLayout.HORIZONTAL);
+        nav.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
 
         Button home = button("HOME");
         Button upload = button("UPLOAD");
         Button profile = button("PROFILE");
 
-        nav.addView(home,
-                new LinearLayout.LayoutParams(0, dp(60), 1));
+        nav.addView(
+                home,
+                new LinearLayout.LayoutParams(
+                        0, dp(60), 1
+                )
+        );
 
-        nav.addView(upload,
-                new LinearLayout.LayoutParams(0, dp(60), 1));
+        nav.addView(
+                upload,
+                new LinearLayout.LayoutParams(
+                        0, dp(60), 1
+                )
+        );
 
-        nav.addView(profile,
-                new LinearLayout.LayoutParams(0, dp(60), 1));
+        nav.addView(
+                profile,
+                new LinearLayout.LayoutParams(
+                        0, dp(60), 1
+                )
+        );
 
         main.addView(nav);
 
-        home.setOnClickListener(v -> showHome());
+        home.setOnClickListener(
+                v -> showHome()
+        );
 
-        upload.setOnClickListener(v -> uploadVideo());
+        upload.setOnClickListener(
+                v -> uploadVideo()
+        );
 
-        profile.setOnClickListener(v -> showProfile());
+        profile.setOnClickListener(
+                v -> showProfile()
+        );
     }
 
     void addBackButton() {
@@ -494,7 +768,9 @@ public class MainActivity extends Activity {
 
         main.addView(back);
 
-        back.setOnClickListener(v -> showHome());
+        back.setOnClickListener(
+                v -> showHome()
+        );
     }
 
     @Override
