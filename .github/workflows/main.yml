@@ -66,10 +66,25 @@ jobs:
 
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.8.0'
+
               implementation platform('com.google.firebase:firebase-bom:34.18.0')
               implementation 'com.google.firebase:firebase-auth'
               implementation 'com.google.firebase:firebase-firestore'
           }
+          EOF
+
+      - name: Fix AppCompat theme
+        run: |
+          mkdir -p "$PROJECT_DIR/app/src/main/res/values"
+
+          cat > "$PROJECT_DIR/app/src/main/res/values/styles.xml" <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:statusBarColor">#141418</item>
+                  <item name="android:navigationBarColor">#141418</item>
+              </style>
+          </resources>
           EOF
 
       - name: Add Internet permission
