@@ -23,6 +23,7 @@ jobs:
 
       - name: Extract Viyzo project
         run: |
+          rm -rf project
           mkdir project
           unzip -q Viyzo-Android-Starter.zip -d project
 
@@ -30,6 +31,7 @@ jobs:
         run: |
           PROJECT_DIR=$(find project -name settings.gradle -type f -print -quit | xargs dirname)
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project: $PROJECT_DIR"
 
       - name: Configure Gradle
         run: |
@@ -78,56 +80,75 @@ jobs:
           mkdir -p "$PROJECT_DIR/app/src/main/res/values"
 
           cat > "$PROJECT_DIR/app/src/main/res/values/styles.xml" <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
                   <item name="android:fontFamily">sans</item>
                   <item name="android:statusBarColor">#141418</item>
                   <item name="android:navigationBarColor">#141418</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowLightNavigationBar">false</item>
               </style>
           </resources>
           EOF
 
-      - name: Add Internet permission
+      - name: Fix AndroidManifest
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
-          import re
+          cat > "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-          project = Path(os.environ["PROJECT_DIR"])
-          manifest = project / "app" / "src" / "main" / "AndroidManifest.xml"
+              <uses-permission android:name="android.permission.INTERNET" />
 
-          text = manifest.read_text()
+              <application
+                  android:allowBackup="true"
+                  android:label="Viyzo"
+                  android:theme="@style/AppTheme">
 
-          permission = '<uses-permission android:name="android.permission.INTERNET" />'
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
 
-          if permission not in text:
-              text = re.sub(
-                  r'(<manifest\b[^>]*>)',
-                  r'\1\n    ' + permission,
-                  text,
-                  count=1
-              )
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
 
-          manifest.write_text(text)
-          PY
+                  </activity>
+
+              </application>
+
+          </manifest>
+          EOF
 
       - name: Copy MainActivity.java
         run: |
           TARGET=$(find "$PROJECT_DIR" -path '*/src/main/java/com/viyzo/app/MainActivity.java' -print -quit)
+
+          if [ -z "$TARGET" ]; then
+            echo "MainActivity.java not found"
+            exit 1
+          fi
+
           cp MainActivity.java "$TARGET"
 
       - name: Add Firebase config
         run: |
+          if [ ! -f google-services.json ]; then
+            echo "google-services.json not found"
+            exit 1
+          fi
+
           cp google-services.json "$PROJECT_DIR/app/google-services.json"
 
       - name: Build APK
         run: |
           cd "$PROJECT_DIR"
-          gradle assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Viyzo-APK
           path: ${{ env.PROJECT_DIR }}/**/*.apk
+          if-no-files-found: error
