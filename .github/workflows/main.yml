@@ -3,6 +3,8 @@ name: Build Viyzo APK
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
 
 jobs:
   build:
@@ -18,35 +20,30 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android
-        uses: android-actions/setup-android@v3
-
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Extract Viyzo starter
+      - name: Check files
+        run: |
+          test -f MainActivity.java
+          test -f google-services.json
+
+      - name: Create clean Viyzo Android project
         run: |
           rm -rf project
-          mkdir -p project
-          unzip -q Viyzo-Android-Starter.zip -d project
 
-      - name: Find project
-        run: |
-          PROJECT_DIR=$(find project -name settings.gradle -type f -print -quit | xargs dirname)
+          mkdir -p project/app/src/main/java/com/viyzo/app
+          mkdir -p project/app/src/main/res/values
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "Android project not found"
-            exit 1
-          fi
+          cp MainActivity.java \
+            project/app/src/main/java/com/viyzo/app/MainActivity.java
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project: $PROJECT_DIR"
+          cp google-services.json \
+            project/app/google-services.json
 
-      - name: Write settings.gradle
-        run: |
-          cat > "$PROJECT_DIR/settings.gradle" <<'EOF'
+          cat > project/settings.gradle <<'EOF'
           pluginManagement {
               repositories {
                   google()
@@ -67,18 +64,20 @@ jobs:
           include(":app")
           EOF
 
-      - name: Write root build.gradle
-        run: |
-          cat > "$PROJECT_DIR/build.gradle" <<'EOF'
+          cat > project/build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.6.1' apply false
               id 'com.google.gms.google-services' version '4.4.2' apply false
           }
           EOF
 
-      - name: Write app build.gradle
-        run: |
-          cat > "$PROJECT_DIR/app/build.gradle" <<'EOF'
+          cat > project/gradle.properties <<'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+
+          cat > project/app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
               id 'com.google.gms.google-services'
@@ -103,7 +102,9 @@ jobs:
           }
 
           dependencies {
+              implementation 'androidx.activity:activity:1.10.1'
               implementation 'androidx.appcompat:appcompat:1.7.0'
+              implementation 'androidx.core:core:1.15.0'
 
               implementation platform('com.google.firebase:firebase-bom:33.7.0')
               implementation 'com.google.firebase:firebase-auth'
@@ -111,37 +112,17 @@ jobs:
           }
           EOF
 
-      - name: Write AppCompat theme
-        run: |
-          mkdir -p "$PROJECT_DIR/app/src/main/res/values"
-
-          cat > "$PROJECT_DIR/app/src/main/res/values/styles.xml" <<'EOF'
+          cat > project/app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-
-              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
-                  <item name="android:fontFamily">sans</item>
-                  <item name="android:statusBarColor">#141418</item>
-                  <item name="android:navigationBarColor">#141418</item>
-                  <item name="android:windowLightStatusBar">false</item>
-                  <item name="android:windowLightNavigationBar">false</item>
-              </style>
-
-          </resources>
-          EOF
-
-      - name: Write AndroidManifest
-        run: |
-          cat > "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
               <application
                   android:allowBackup="true"
                   android:label="Viyzo"
+                  android:supportsRtl="true"
                   android:theme="@style/AppTheme">
 
                   <activity
@@ -160,50 +141,38 @@ jobs:
           </manifest>
           EOF
 
-      - name: Copy MainActivity
-        run: |
-          TARGET="$PROJECT_DIR/app/src/main/java/com/viyzo/app/MainActivity.java"
+          cat > project/app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
 
-          if [ ! -f MainActivity.java ]; then
-            echo "MainActivity.java not found in repository"
-            exit 1
-          fi
+              <style name="AppTheme"
+                     parent="Theme.AppCompat.DayNight.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:statusBarColor">#000000</item>
+                  <item name="android:navigationBarColor">#000000</item>
+              </style>
 
-          mkdir -p "$(dirname "$TARGET")"
-          cp MainActivity.java "$TARGET"
+          </resources>
+          EOF
 
-      - name: Copy Firebase config
-        run: |
-          if [ ! -f google-services.json ]; then
-            echo "google-services.json not found"
-            exit 1
-          fi
+          echo "Checking MainActivity package..."
+          grep -q '^package com\.viyzo\.app;' \
+            project/app/src/main/java/com/viyzo/app/MainActivity.java
 
-          cp google-services.json "$PROJECT_DIR/app/google-services.json"
-
-      - name: Show important files
-        run: |
-          echo "===== settings.gradle ====="
-          cat "$PROJECT_DIR/settings.gradle"
-
-          echo "===== app/build.gradle ====="
-          cat "$PROJECT_DIR/app/build.gradle"
-
-          echo "===== Firebase file ====="
-          ls -lh "$PROJECT_DIR/app/google-services.json"
-
-          echo "===== MainActivity ====="
-          ls -lh "$PROJECT_DIR/app/src/main/java/com/viyzo/app/MainActivity.java"
+          echo "MainActivity location:"
+          find project/app/src/main/java -name MainActivity.java -print
 
       - name: Build APK
         run: |
-          cd "$PROJECT_DIR"
           gradle --version
-          gradle :app:assembleDebug --no-daemon --stacktrace
+          gradle -p project clean :app:assembleDebug \
+            --no-daemon \
+            --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Viyzo-APK
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          path: project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
