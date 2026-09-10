@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -26,9 +27,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
-import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.firestore.DocumentReference;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
@@ -36,38 +35,51 @@ import com.google.firebase.firestore.Query;
 import com.google.firebase.firestore.SetOptions;
 import com.google.firebase.firestore.WriteBatch;
 
-import java.util.ArrayList;
+import org.json.JSONObject;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
 
     private FirebaseAuth auth;
     private FirebaseFirestore db;
+
     private LinearLayout root;
     private VideoView videoView;
+
     private Uri selectedVideo;
     private String currentUid;
 
+    /*
+     * CLOUDINARY
+     * Cloud name: vnxamljh
+     * Upload preset: viyzo_upload
+     */
+    private static final String CLOUD_NAME = "vnxamljh";
+    private static final String UPLOAD_PRESET = "viyzo_upload";
+
     private final ActivityResultLauncher<String> videoPicker =
-            registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-                if (uri != null) {
-                    selectedVideo = uri;
+            registerForActivityResult(
+                    new ActivityResultContracts.GetContent(),
+                    uri -> {
+                        if (uri == null) return;
 
-                    if (videoView != null) {
-                        videoView.setVideoURI(uri);
-                        videoView.setMediaController(new MediaController(this));
-                        videoView.start();
-                    }
+                        selectedVideo = uri;
 
-                    saveVideoMetadata();
-                    toast("Video selected");
-                }
-            });
+                        playLocalVideo(uri);
 
-    private final ActivityResultLauncher<String> notificationPermissionLauncher =
-            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {});
+                        uploadVideoToCloudinary(uri);
+                    });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,57 +92,30 @@ public class MainActivity extends AppCompatActivity {
 
         if (auth.getCurrentUser() != null) {
             currentUid = auth.getCurrentUser().getUid();
-            requestNotificationPermission();
             showHome();
         } else {
             showLogin();
         }
     }
 
-    private void requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED) {
-
-            notificationPermissionLauncher.launch(
-                    Manifest.permission.POST_NOTIFICATIONS
-            );
-        }
-    }
-
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-
-            NotificationChannel channel = new NotificationChannel(
-                    "viyzo_notifications",
-                    "Viyzo Notifications",
-                    NotificationManager.IMPORTANCE_DEFAULT
-            );
-
-            channel.setDescription("Viyzo social notifications");
-
-            NotificationManager manager =
-                    getSystemService(NotificationManager.class);
-
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
-            }
-        }
-    }
+    /* =========================================================
+       LOGIN
+       ========================================================= */
 
     private void showLogin() {
 
         root = baseRoot();
 
-        addTitle("Welcome to VIYZO");
+        addTitle("WELCOME TO VIYZO");
         addLabel("Login");
 
         EditText email = input("Email");
         EditText password = input("Password");
 
         password.setInputType(0x00000081);
+
+        root.addView(email);
+        root.addView(password);
 
         Button login = button("LOGIN");
 
@@ -149,12 +134,12 @@ public class MainActivity extends AppCompatActivity {
 
                         currentUid = result.getUser().getUid();
 
-                        requestNotificationPermission();
+                        toast("Login successful");
 
                         showHome();
                     })
-                    .addOnFailureListener(err ->
-                            toast("Login failed: " + err.getMessage()));
+                    .addOnFailureListener(
+                            e1 -> toast("Login failed: " + e1.getMessage()));
         });
 
         root.addView(login);
@@ -168,17 +153,25 @@ public class MainActivity extends AppCompatActivity {
         setContentView(wrap());
     }
 
+    /* =========================================================
+       SIGN UP
+       ========================================================= */
+
     private void showSignup() {
 
         root = baseRoot();
 
-        addTitle("Create VIYZO Account");
+        addTitle("CREATE VIYZO ACCOUNT");
 
         EditText name = input("Your name");
         EditText email = input("Email");
         EditText password = input("Password");
 
         password.setInputType(0x00000081);
+
+        root.addView(name);
+        root.addView(email);
+        root.addView(password);
 
         Button create = button("SIGN UP");
 
@@ -188,8 +181,18 @@ public class MainActivity extends AppCompatActivity {
             String e = email.getText().toString().trim();
             String p = password.getText().toString();
 
-            if (n.isEmpty() || e.isEmpty() || p.length() < 6) {
-                toast("Enter name, valid email and 6+ character password");
+            if (n.isEmpty()) {
+                toast("Enter your name");
+                return;
+            }
+
+            if (e.isEmpty()) {
+                toast("Enter email");
+                return;
+            }
+
+            if (p.length() < 6) {
+                toast("Password must be 6 characters or more");
                 return;
             }
 
@@ -198,7 +201,8 @@ public class MainActivity extends AppCompatActivity {
 
                         currentUid = result.getUser().getUid();
 
-                        Map<String, Object> user = new HashMap<>();
+                        Map<String, Object> user =
+                                new HashMap<>();
 
                         user.put("uid", currentUid);
                         user.put("name", n);
@@ -206,7 +210,8 @@ public class MainActivity extends AppCompatActivity {
                         user.put("followersCount", 0L);
                         user.put("followingCount", 0L);
                         user.put("likesReceived", 0L);
-                        user.put("createdAt", FieldValue.serverTimestamp());
+                        user.put("createdAt",
+                                FieldValue.serverTimestamp());
 
                         db.collection("users")
                                 .document(currentUid)
@@ -217,12 +222,15 @@ public class MainActivity extends AppCompatActivity {
 
                                     showHome();
                                 })
-                                .addOnFailureListener(err ->
-                                        toast("Profile save failed: " +
-                                                err.getMessage()));
+                                .addOnFailureListener(
+                                        x -> toast(
+                                                "Profile save failed: "
+                                                        + x.getMessage()));
                     })
-                    .addOnFailureListener(err ->
-                            toast("Sign up failed: " + err.getMessage()));
+                    .addOnFailureListener(
+                            e1 -> toast(
+                                    "Sign up failed: "
+                                            + e1.getMessage()));
         });
 
         root.addView(create);
@@ -236,98 +244,131 @@ public class MainActivity extends AppCompatActivity {
         setContentView(wrap());
     }
 
+    /* =========================================================
+       HOME
+       ========================================================= */
+
     private void showHome() {
 
         root = baseRoot();
 
         addTitle("VIYZO");
-        addLabel("Welcome to VIYZO");
+
+        addLabel("India Short Video");
 
         videoView = new VideoView(this);
+
         videoView.setBackgroundColor(Color.BLACK);
 
         LinearLayout.LayoutParams vp =
-                new LinearLayout.LayoutParams(-1, 520);
+                new LinearLayout.LayoutParams(
+                        -1,
+                        650);
 
         vp.setMargins(0, 15, 0, 15);
 
         root.addView(videoView, vp);
 
-        Button select = button("SELECT VIDEO");
+        Button select =
+                button("SELECT & UPLOAD VIDEO");
 
-        select.setOnClickListener(v ->
-                videoPicker.launch("video/*"));
+        select.setOnClickListener(
+                v -> videoPicker.launch("video/*"));
 
         root.addView(select);
 
-        Button like = button("LIKE ❤️");
+        Button feed =
+                button("ONLINE VIDEO FEED");
 
-        like.setOnClickListener(v -> saveLike());
+        feed.setOnClickListener(
+                v -> showOnlineFeed());
+
+        root.addView(feed);
+
+        Button like =
+                button("LIKE");
+
+        like.setOnClickListener(
+                v -> likeSelectedVideo());
 
         root.addView(like);
 
-        Button comment = button("COMMENT 💬");
+        Button comment =
+                button("COMMENT");
 
-        comment.setOnClickListener(v -> showCommentBox());
+        comment.setOnClickListener(
+                v -> showCommentBox());
 
         root.addView(comment);
 
-        Button comments = button("VIEW COMMENTS");
+        Button comments =
+                button("VIEW COMMENTS");
 
-        comments.setOnClickListener(v -> showComments());
+        comments.setOnClickListener(
+                v -> showComments());
 
         root.addView(comments);
 
-        Button share = button("SHARE VIDEO");
+        Button share =
+                button("SHARE VIDEO");
 
-        share.setOnClickListener(v -> shareVideo());
+        share.setOnClickListener(
+                v -> shareSelectedVideo());
 
         root.addView(share);
 
-        Button profile = button("MY PROFILE");
+        Button profile =
+                button("PROFILE");
 
-        profile.setOnClickListener(v -> showProfile());
+        profile.setOnClickListener(
+                v -> showProfile());
 
         root.addView(profile);
 
-        Button search = button("SEARCH USERS");
+        Button search =
+                button("SEARCH USERS");
 
-        search.setOnClickListener(v -> searchUsers());
+        search.setOnClickListener(
+                v -> searchUsers());
 
         root.addView(search);
 
-        Button followLists = button("FOLLOWERS / FOLLOWING");
+        Button follow =
+                button("FOLLOWERS / FOLLOWING");
 
-        followLists.setOnClickListener(v -> showFollowLists());
+        follow.setOnClickListener(
+                v -> showFollowLists());
 
-        root.addView(followLists);
+        root.addView(follow);
 
-        Button messages = button("MESSAGES");
+        Button messages =
+                button("MESSAGES");
 
-        messages.setOnClickListener(v -> searchUsersForMessage());
+        messages.setOnClickListener(
+                v -> showMessages());
 
         root.addView(messages);
 
-        Button notifications = button("NOTIFICATIONS 🔔");
+        Button notifications =
+                button("NOTIFICATIONS");
 
-        notifications.setOnClickListener(v -> showNotifications());
+        notifications.setOnClickListener(
+                v -> showNotifications());
 
         root.addView(notifications);
 
-        Button report = button("REPORT / DISPUTE");
+        Button report =
+                button("REPORT / DISPUTE");
 
-        report.setOnClickListener(v -> showReport());
+        report.setOnClickListener(
+                v -> showReport());
 
         root.addView(report);
 
-        Button delete = button("DELETE MY VIDEO");
+        Button delete =
+                button("DELETE SELECTED VIDEO");
 
         delete.setOnClickListener(v -> {
-
-            if (selectedVideo == null) {
-                toast("Select a video first");
-                return;
-            }
 
             selectedVideo = null;
 
@@ -336,16 +377,18 @@ public class MainActivity extends AppCompatActivity {
                 videoView.setVideoURI(null);
             }
 
-            toast("Local video removed");
+            toast("Video removed from screen");
         });
 
         root.addView(delete);
 
-        Button logout = button("LOGOUT");
+        Button logout =
+                button("LOGOUT");
 
         logout.setOnClickListener(v -> {
 
             auth.signOut();
+
             currentUid = null;
             selectedVideo = null;
 
@@ -357,95 +400,573 @@ public class MainActivity extends AppCompatActivity {
         setContentView(wrap());
     }
 
-    private void saveVideoMetadata() {
+    /* =========================================================
+       CLOUDINARY VIDEO UPLOAD
+       ========================================================= */
 
-        if (currentUid == null || selectedVideo == null) {
+    private void uploadVideoToCloudinary(Uri uri) {
+
+        toast("Video upload started...");
+
+        new Thread(() -> {
+
+            HttpURLConnection connection = null;
+
+            try {
+
+                String boundary =
+                        "----VIYZO" + UUID.randomUUID();
+
+                URL url =
+                        new URL(
+                                "https://api.cloudinary.com/v1_1/"
+                                        + CLOUD_NAME
+                                        + "/video/upload");
+
+                connection =
+                        (HttpURLConnection) url.openConnection();
+
+                connection.setRequestMethod("POST");
+                connection.setDoOutput(true);
+                connection.setDoInput(true);
+
+                connection.setRequestProperty(
+                        "Content-Type",
+                        "multipart/form-data; boundary="
+                                + boundary);
+
+                connection.setConnectTimeout(30000);
+                connection.setReadTimeout(120000);
+
+                OutputStream raw =
+                        connection.getOutputStream();
+
+                BufferedOutputStream output =
+                        new BufferedOutputStream(raw);
+
+                writeTextField(
+                        output,
+                        boundary,
+                        "upload_preset",
+                        UPLOAD_PRESET);
+
+                writeTextField(
+                        output,
+                        boundary,
+                        "folder",
+                        "viyzo");
+
+                String fileName =
+                        "viyzo_"
+                                + System.currentTimeMillis()
+                                + ".mp4";
+
+                output.write(
+                        ("--"
+                                + boundary
+                                + "\r\n")
+                                .getBytes());
+
+                output.write(
+                        ("Content-Disposition: form-data; name=\"file\"; filename=\""
+                                + fileName
+                                + "\"\r\n")
+                                .getBytes());
+
+                output.write(
+                        "Content-Type: video/mp4\r\n\r\n"
+                                .getBytes());
+
+                InputStream input =
+                        getContentResolver()
+                                .openInputStream(uri);
+
+                if (input == null) {
+                    throw new Exception(
+                            "Unable to read selected video");
+                }
+
+                BufferedInputStream buffered =
+                        new BufferedInputStream(input);
+
+                byte[] buffer =
+                        new byte[8192];
+
+                int count;
+
+                while ((count =
+                        buffered.read(buffer)) != -1) {
+
+                    output.write(
+                            buffer,
+                            0,
+                            count);
+                }
+
+                buffered.close();
+
+                output.write(
+                        ("\r\n--"
+                                + boundary
+                                + "--\r\n")
+                                .getBytes());
+
+                output.flush();
+                output.close();
+
+                int responseCode =
+                        connection.getResponseCode();
+
+                InputStream responseStream;
+
+                if (responseCode >= 200
+                        && responseCode < 300) {
+
+                    responseStream =
+                            connection.getInputStream();
+
+                } else {
+
+                    responseStream =
+                            connection.getErrorStream();
+                }
+
+                String response =
+                        readStream(responseStream);
+
+                if (responseCode >= 200
+                        && responseCode < 300) {
+
+                    JSONObject json =
+                            new JSONObject(response);
+
+                    String secureUrl =
+                            json.optString(
+                                    "secure_url",
+                                    "");
+
+                    String publicId =
+                            json.optString(
+                                    "public_id",
+                                    "");
+
+                    String originalName =
+                            json.optString(
+                                    "original_filename",
+                                    fileName);
+
+                    saveOnlineVideo(
+                            secureUrl,
+                            publicId,
+                            originalName);
+
+                    runOnUiThread(() ->
+                            toast(
+                                    "Video uploaded successfully"));
+
+                } else {
+
+                    runOnUiThread(() ->
+                            toast(
+                                    "Cloudinary upload failed"));
+                }
+
+            } catch (Exception e) {
+
+                runOnUiThread(() ->
+                        toast(
+                                "Upload error: "
+                                        + e.getMessage()));
+
+            } finally {
+
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+
+        }).start();
+    }
+
+    private void writeTextField(
+            OutputStream output,
+            String boundary,
+            String name,
+            String value)
+            throws Exception {
+
+        output.write(
+                ("--"
+                        + boundary
+                        + "\r\n")
+                        .getBytes());
+
+        output.write(
+                ("Content-Disposition: form-data; name=\""
+                        + name
+                        + "\"\r\n\r\n")
+                        .getBytes());
+
+        output.write(
+                (value + "\r\n")
+                        .getBytes());
+    }
+
+    private String readStream(
+            InputStream stream)
+            throws Exception {
+
+        if (stream == null) {
+            return "";
+        }
+
+        ByteArrayOutputStream output =
+                new ByteArrayOutputStream();
+
+        byte[] buffer =
+                new byte[4096];
+
+        int count;
+
+        while ((count =
+                stream.read(buffer)) != -1) {
+
+            output.write(
+                    buffer,
+                    0,
+                    count);
+        }
+
+        stream.close();
+
+        return output.toString("UTF-8");
+    }
+
+    /* =========================================================
+       SAVE ONLINE VIDEO
+       ========================================================= */
+
+    private void saveOnlineVideo(
+            String url,
+            String publicId,
+            String name) {
+
+        if (currentUid == null
+                || url == null
+                || url.isEmpty()) {
+
             return;
         }
 
-        Map<String, Object> video = new HashMap<>();
+        Map<String, Object> video =
+                new HashMap<>();
 
-        video.put("ownerUid", currentUid);
-        video.put("videoUri", selectedVideo.toString());
+        video.put("uid", currentUid);
+        video.put("videoUrl", url);
+        video.put("cloudinaryUrl", url);
+        video.put("publicId", publicId);
+        video.put("name", name);
         video.put("likes", 0L);
-        video.put("createdAt", FieldValue.serverTimestamp());
+        video.put("commentsCount", 0L);
+        video.put("createdAt",
+                FieldValue.serverTimestamp());
 
         db.collection("videos")
-                .document(currentUid)
-                .set(video, SetOptions.merge())
-                .addOnFailureListener(e ->
-                        toast("Video data save failed"));
+                .add(video)
+                .addOnSuccessListener(
+                        documentReference -> {
+
+                            runOnUiThread(() ->
+                                    toast(
+                                            "Video saved online"));
+
+                            playVideoUrl(url);
+                        })
+                .addOnFailureListener(
+                        e -> runOnUiThread(() ->
+                                toast(
+                                        "Video database save failed: "
+                                                + e.getMessage())));
     }
 
-    private void saveLike() {
+    /* =========================================================
+       ONLINE FEED
+       ========================================================= */
 
-        if (currentUid == null) {
-            toast("Login required");
-            return;
-        }
-
-        if (selectedVideo == null) {
-            toast("Select a video first");
-            return;
-        }
-
-        DocumentReference videoRef =
-                db.collection("videos")
-                        .document(currentUid);
-
-        Map<String, Object> data = new HashMap<>();
-
-        data.put("ownerUid", currentUid);
-        data.put("videoUri", selectedVideo.toString());
-        data.put("likes", FieldValue.increment(1));
-        data.put("updatedAt", FieldValue.serverTimestamp());
-
-        videoRef.set(data, SetOptions.merge())
-                .addOnSuccessListener(v -> {
-
-                    toast("❤️ Like saved");
-
-                    addNotification(
-                            currentUid,
-                            "like",
-                            "Your video received a like"
-                    );
-
-                    showLocalNotification(
-                            "Viyzo",
-                            "Like saved"
-                    );
-                })
-                .addOnFailureListener(e ->
-                        toast("Like failed: " + e.getMessage()));
-    }
-
-    private void showCommentBox() {
-
-        if (currentUid == null) {
-            toast("Login required");
-            return;
-        }
-
-        if (selectedVideo == null) {
-            toast("Select a video first");
-            return;
-        }
+    private void showOnlineFeed() {
 
         root = baseRoot();
 
-        addTitle("Comment");
+        addTitle("VIYZO ONLINE FEED");
 
-        EditText comment = input("Write your comment");
+        db.collection("videos")
+                .orderBy(
+                        "createdAt",
+                        Query.Direction.DESCENDING)
+                .limit(30)
+                .get()
+                .addOnSuccessListener(snapshot -> {
 
-        Button send = button("SEND COMMENT");
+                    for (DocumentSnapshot doc :
+                            snapshot.getDocuments()) {
+
+                        String url =
+                                doc.getString("videoUrl");
+
+                        String uid =
+                                doc.getString("uid");
+
+                        String name =
+                                doc.getString("name");
+
+                        if (url == null
+                                || url.isEmpty()) {
+                            continue;
+                        }
+
+                        TextView title =
+                                new TextView(this);
+
+                        title.setText(
+                                "VIDEO\n"
+                                        + (name == null
+                                        ? ""
+                                        : name));
+
+                        title.setTextColor(Color.WHITE);
+
+                        title.setTextSize(17);
+
+                        title.setPadding(
+                                10,
+                                20,
+                                10,
+                                10);
+
+                        root.addView(title);
+
+                        VideoView vv =
+                                new VideoView(this);
+
+                        vv.setBackgroundColor(
+                                Color.BLACK);
+
+                        LinearLayout.LayoutParams lp =
+                                new LinearLayout.LayoutParams(
+                                        -1,
+                                        600);
+
+                        root.addView(vv, lp);
+
+                        vv.setVideoURI(
+                                Uri.parse(url));
+
+                        vv.setMediaController(
+                                new MediaController(this));
+
+                        vv.setOnPreparedListener(
+                                mp -> {
+
+                                    mp.setLooping(true);
+
+                                    vv.start();
+                                });
+
+                        Button l =
+                                button("LIKE");
+
+                        l.setOnClickListener(
+                                v -> likeVideoDocument(
+                                        doc.getId(),
+                                        uid));
+
+                        root.addView(l);
+
+                        Button c =
+                                button("COMMENTS");
+
+                        c.setOnClickListener(
+                                v -> showVideoComments(
+                                        doc.getId()));
+
+                        root.addView(c);
+
+                        Button s =
+                                button("SHARE");
+
+                        s.setOnClickListener(
+                                v -> {
+
+                                    Intent intent =
+                                            new Intent(
+                                                    Intent.ACTION_SEND);
+
+                                    intent.setType(
+                                            "text/plain");
+
+                                    intent.putExtra(
+                                            Intent.EXTRA_TEXT,
+                                            url);
+
+                                    startActivity(
+                                            Intent.createChooser(
+                                                    intent,
+                                                    "Share Viyzo video"));
+                                });
+
+                        root.addView(s);
+                    }
+
+                    Button back =
+                            button("BACK");
+
+                    back.setOnClickListener(
+                            v -> showHome());
+
+                    root.addView(back);
+
+                    setContentView(wrap());
+
+                })
+                .addOnFailureListener(
+                        e -> {
+
+                            addLabel(
+                                    "Feed error: "
+                                            + e.getMessage());
+
+                            Button back =
+                                    button("BACK");
+
+                            back.setOnClickListener(
+                                    v -> showHome());
+
+                            root.addView(back);
+
+                            setContentView(wrap());
+                        });
+    }
+
+    /* =========================================================
+       VIDEO PLAYER
+       ========================================================= */
+
+    private void playLocalVideo(Uri uri) {
+
+        if (videoView == null) return;
+
+        videoView.setVideoURI(uri);
+
+        videoView.setMediaController(
+                new MediaController(this));
+
+        videoView.setOnPreparedListener(
+                mp -> videoView.start());
+    }
+
+    private void playVideoUrl(String url) {
+
+        if (videoView == null
+                || url == null
+                || url.isEmpty()) {
+            return;
+        }
+
+        runOnUiThread(() -> {
+
+            videoView.setVideoURI(
+                    Uri.parse(url));
+
+            videoView.setMediaController(
+                    new MediaController(this));
+
+            videoView.setOnPreparedListener(
+                    mp -> videoView.start());
+        });
+    }
+
+    /* =========================================================
+       LIKE
+       ========================================================= */
+
+    private void likeSelectedVideo() {
+
+        toast("Use ONLINE VIDEO FEED to like online videos");
+    }
+
+    private void likeVideoDocument(
+            String videoId,
+            String ownerUid) {
+
+        if (videoId == null) return;
+
+        db.collection("videos")
+                .document(videoId)
+                .set(
+                        makeLikeData(),
+                        SetOptions.merge())
+                .addOnSuccessListener(
+                        x -> {
+
+                            toast("Liked");
+
+                            if (ownerUid != null
+                                    && !ownerUid.equals(currentUid)) {
+
+                                addNotificationToUser(
+                                        ownerUid,
+                                        "like",
+                                        "Someone liked your Viyzo video");
+                            }
+                        })
+                .addOnFailureListener(
+                        e -> toast(
+                                "Like failed: "
+                                        + e.getMessage()));
+    }
+
+    private Map<String, Object> makeLikeData() {
+
+        Map<String, Object> data =
+                new HashMap<>();
+
+        data.put(
+                "likes",
+                FieldValue.increment(1));
+
+        return data;
+    }
+
+    /* =========================================================
+       COMMENTS
+       ========================================================= */
+
+    private void showCommentBox() {
+
+        if (selectedVideo == null) {
+
+            toast(
+                    "Select/upload a video first");
+
+            return;
+        }
+
+        final EditText text =
+                input("Write your comment");
+
+        root.addView(text);
+
+        Button send =
+                button("SEND COMMENT");
 
         send.setOnClickListener(v -> {
 
-            String text =
-                    comment.getText().toString().trim();
+            String message =
+                    text.getText()
+                            .toString()
+                            .trim();
 
-            if (text.isEmpty()) {
+            if (message.isEmpty()) {
                 toast("Write a comment");
                 return;
             }
@@ -453,115 +974,116 @@ public class MainActivity extends AppCompatActivity {
             Map<String, Object> data =
                     new HashMap<>();
 
-            data.put("uid", currentUid);
-            data.put("comment", text);
-            data.put("createdAt",
+            data.put(
+                    "uid",
+                    currentUid);
+
+            data.put(
+                    "text",
+                    message);
+
+            data.put(
+                    "createdAt",
                     FieldValue.serverTimestamp());
 
-            db.collection("videos")
-                    .document(currentUid)
-                    .collection("comments")
+            db.collection("comments")
                     .add(data)
-                    .addOnSuccessListener(x -> {
-
-                        toast("Comment saved");
-
-                        addNotification(
-                                currentUid,
-                                "comment",
-                                "Your video received a comment"
-                        );
-
-                        showLocalNotification(
-                                "Viyzo",
-                                "Comment saved"
-                        );
-
-                        showHome();
-                    })
-                    .addOnFailureListener(e ->
-                            toast("Comment failed: " +
-                                    e.getMessage()));
+                    .addOnSuccessListener(
+                            x -> toast(
+                                    "Comment saved"))
+                    .addOnFailureListener(
+                            e -> toast(
+                                    "Comment failed: "
+                                            + e.getMessage()));
         });
 
         root.addView(send);
-
-        Button back = button("BACK");
-
-        back.setOnClickListener(v -> showHome());
-
-        root.addView(back);
-
-        setContentView(wrap());
     }
 
     private void showComments() {
 
-        if (currentUid == null ||
-                selectedVideo == null) {
+        root = baseRoot();
 
-            toast("Select a video first");
-            return;
-        }
+        addTitle("COMMENTS");
+
+        db.collection("comments")
+                .whereEqualTo(
+                        "uid",
+                        currentUid)
+                .get()
+                .addOnSuccessListener(
+                        snapshot -> {
+
+                            for (DocumentSnapshot doc :
+                                    snapshot.getDocuments()) {
+
+                                String text =
+                                        doc.getString("text");
+
+                                addLabel(
+                                        text == null
+                                                ? ""
+                                                : text);
+                            }
+
+                            Button back =
+                                    button("BACK");
+
+                            back.setOnClickListener(
+                                    v -> showHome());
+
+                            root.addView(back);
+
+                            setContentView(
+                                    wrap());
+                        });
+    }
+
+    private void showVideoComments(
+            String videoId) {
 
         root = baseRoot();
 
-        addTitle("Comments");
+        addTitle("VIDEO COMMENTS");
 
         db.collection("videos")
-                .document(currentUid)
+                .document(videoId)
                 .collection("comments")
                 .get()
-                .addOnSuccessListener(snapshot -> {
+                .addOnSuccessListener(
+                        snapshot -> {
 
-                    if (snapshot.isEmpty()) {
-                        addLabel("No comments yet");
-                    }
+                            for (DocumentSnapshot doc :
+                                    snapshot.getDocuments()) {
 
-                    for (DocumentSnapshot doc :
-                            snapshot.getDocuments()) {
+                                addLabel(
+                                        doc.getString(
+                                                "text"));
+                            }
 
-                        String uid =
-                                doc.getString("uid");
+                            Button back =
+                                    button("BACK");
 
-                        String text =
-                                doc.getString("comment");
+                            back.setOnClickListener(
+                                    v -> showOnlineFeed());
 
-                        TextView tv =
-                                new TextView(this);
+                            root.addView(back);
 
-                        tv.setText(
-                                "👤 " +
-                                (uid == null ? "" : uid) +
-                                "\n" +
-                                (text == null ? "" : text)
-                        );
-
-                        tv.setTextColor(Color.WHITE);
-                        tv.setTextSize(16);
-                        tv.setPadding(
-                                15, 15, 15, 15
-                        );
-
-                        root.addView(tv);
-                    }
-                })
-                .addOnFailureListener(e ->
-                        addLabel("Could not load comments"));
-
-        Button back = button("BACK");
-
-        back.setOnClickListener(v -> showHome());
-
-        root.addView(back);
-
-        setContentView(wrap());
+                            setContentView(
+                                    wrap());
+                        });
     }
 
-    private void shareVideo() {
+    /* =========================================================
+       SHARE
+       ========================================================= */
+
+    private void shareSelectedVideo() {
 
         if (selectedVideo == null) {
+
             toast("Select a video first");
+
             return;
         }
 
@@ -572,356 +1094,292 @@ public class MainActivity extends AppCompatActivity {
 
         intent.putExtra(
                 Intent.EXTRA_TEXT,
-                "Watch this video on VIYZO"
-        );
+                selectedVideo.toString());
 
         startActivity(
                 Intent.createChooser(
                         intent,
-                        "Share Video"
-                )
-        );
+                        "Share Viyzo video"));
     }
+
+    /* =========================================================
+       PROFILE
+       ========================================================= */
 
     private void showProfile() {
 
         root = baseRoot();
 
-        addTitle("My Profile");
+        addTitle("MY PROFILE");
 
         db.collection("users")
                 .document(currentUid)
                 .get()
-                .addOnSuccessListener(doc -> {
+                .addOnSuccessListener(
+                        doc -> {
 
-                    String name =
-                            doc.getString("name");
+                            addLabel(
+                                    "Name: "
+                                            + safe(
+                                            doc.getString("name")));
 
-                    String email =
-                            doc.getString("email");
+                            addLabel(
+                                    "Email: "
+                                            + safe(
+                                            doc.getString("email")));
 
-                    Long followers =
-                            doc.getLong("followersCount");
+                            addLabel(
+                                    "Followers: "
+                                            + value(
+                                            doc.get("followersCount")));
 
-                    Long following =
-                            doc.getLong("followingCount");
+                            addLabel(
+                                    "Following: "
+                                            + value(
+                                            doc.get("followingCount")));
 
-                    Long likes =
-                            doc.getLong("likesReceived");
+                            addLabel(
+                                    "Likes: "
+                                            + value(
+                                            doc.get("likesReceived")));
 
-                    addLabel(
-                            "Name: " +
-                            (name == null ? "" : name)
-                    );
+                            Button back =
+                                    button("BACK");
 
-                    addLabel(
-                            "Email: " +
-                            (email == null ? "" : email)
-                    );
+                            back.setOnClickListener(
+                                    v -> showHome());
 
-                    addLabel(
-                            "Followers: " +
-                            (followers == null ?
-                                    0 : followers)
-                    );
+                            root.addView(back);
 
-                    addLabel(
-                            "Following: " +
-                            (following == null ?
-                                    0 : following)
-                    );
-
-                    addLabel(
-                            "Likes received: " +
-                            (likes == null ? 0 : likes)
-                    );
-                })
-                .addOnFailureListener(e ->
-                        addLabel("Profile loading failed"));
-
-        Button back = button("BACK");
-
-        back.setOnClickListener(v -> showHome());
-
-        root.addView(back);
-
-        setContentView(wrap());
+                            setContentView(
+                                    wrap());
+                        });
     }
+
+    /* =========================================================
+       SEARCH USERS
+       ========================================================= */
 
     private void searchUsers() {
 
         root = baseRoot();
 
-        addTitle("Search Users");
+        addTitle("SEARCH USERS");
 
         EditText search =
-                input("Enter name");
+                input("Enter exact user name");
 
-        Button find = button("SEARCH");
+        root.addView(search);
+
+        Button find =
+                button("SEARCH");
 
         find.setOnClickListener(v -> {
 
-            String term =
-                    search.getText().toString().trim();
+            String q =
+                    search.getText()
+                            .toString()
+                            .trim();
 
-            if (term.isEmpty()) {
+            if (q.isEmpty()) {
                 toast("Enter a name");
                 return;
             }
 
             db.collection("users")
+                    .whereEqualTo(
+                            "name",
+                            q)
                     .get()
-                    .addOnSuccessListener(snapshot -> {
+                    .addOnSuccessListener(
+                            snapshot -> {
 
-                        boolean found = false;
+                                for (DocumentSnapshot doc :
+                                        snapshot.getDocuments()) {
 
-                        for (DocumentSnapshot doc :
-                                snapshot.getDocuments()) {
+                                    String uid =
+                                            doc.getId();
 
-                            String name =
-                                    doc.getString("name");
+                                    String name =
+                                            doc.getString(
+                                                    "name");
 
-                            if (name != null &&
-                                    name.toLowerCase()
-                                            .contains(
-                                                    term.toLowerCase()
-                                            )) {
+                                    Button user =
+                                            button(
+                                                    name == null
+                                                            ? "USER"
+                                                            : name);
 
-                                found = true;
+                                    user.setOnClickListener(
+                                            v -> showOtherProfile(
+                                                    uid));
 
-                                Button userButton =
-                                        button(name);
-
-                                String uid = doc.getId();
-
-                                userButton.setOnClickListener(
-                                        x ->
-                                                showOtherProfile(uid)
-                                );
-
-                                root.addView(userButton);
-                            }
-                        }
-
-                        if (!found) {
-                            addLabel("No user found");
-                        }
-                    })
-                    .addOnFailureListener(e ->
-                            toast("Search failed"));
+                                    root.addView(user);
+                                }
+                            });
         });
 
         root.addView(find);
 
-        Button back = button("BACK");
+        Button back =
+                button("BACK");
 
-        back.setOnClickListener(v -> showHome());
+        back.setOnClickListener(
+                v -> showHome());
 
         root.addView(back);
 
         setContentView(wrap());
     }
 
-    private void showOtherProfile(String targetUid) {
+    /* =========================================================
+       OTHER PROFILE
+       ========================================================= */
+
+    private void showOtherProfile(
+            String uid) {
 
         root = baseRoot();
 
-        addTitle("User Profile");
+        addTitle("USER PROFILE");
 
         db.collection("users")
-                .document(targetUid)
+                .document(uid)
                 .get()
-                .addOnSuccessListener(doc -> {
+                .addOnSuccessListener(
+                        doc -> {
 
-                    String name =
-                            doc.getString("name");
+                            addLabel(
+                                    "Name: "
+                                            + safe(
+                                            doc.getString(
+                                                    "name")));
 
-                    Long followers =
-                            doc.getLong("followersCount");
+                            addLabel(
+                                    "Followers: "
+                                            + value(
+                                            doc.get(
+                                                    "followersCount")));
 
-                    Long following =
-                            doc.getLong("followingCount");
+                            addLabel(
+                                    "Following: "
+                                            + value(
+                                            doc.get(
+                                                    "followingCount")));
 
-                    addLabel(
-                            "Name: " +
-                            (name == null ? "" : name)
-                    );
+                            Button follow =
+                                    button("FOLLOW");
 
-                    addLabel(
-                            "Followers: " +
-                            (followers == null ?
-                                    0 : followers)
-                    );
+                            follow.setOnClickListener(
+                                    v -> toggleFollow(
+                                            uid));
 
-                    addLabel(
-                            "Following: " +
-                            (following == null ?
-                                    0 : following)
-                    );
+                            root.addView(follow);
 
-                    if (!targetUid.equals(currentUid)) {
+                            Button back =
+                                    button("BACK");
 
-                        Button follow =
-                                button("FOLLOW / UNFOLLOW");
+                            back.setOnClickListener(
+                                    v -> searchUsers());
 
-                        follow.setOnClickListener(v ->
-                                toggleFollow(
-                                        targetUid,
-                                        name == null ?
-                                                "User" : name
-                                ));
+                            root.addView(back);
 
-                        root.addView(follow);
-                    }
-                });
-
-        Button back = button("BACK");
-
-        back.setOnClickListener(v -> searchUsers());
-
-        root.addView(back);
-
-        setContentView(wrap());
+                            setContentView(
+                                    wrap());
+                        });
     }
 
-    private void toggleFollow(
-            String targetUid,
-            String targetName) {
+    /* =========================================================
+       FOLLOW
+       ========================================================= */
 
-        if (targetUid.equals(currentUid)) {
-            toast("You cannot follow yourself");
+    private void toggleFollow(
+            String targetUid) {
+
+        if (targetUid == null
+                || targetUid.equals(currentUid)) {
+
+            toast("Cannot follow yourself");
+
             return;
         }
 
-        DocumentReference followingRef =
-                db.collection("users")
-                        .document(currentUid)
-                        .collection("following")
-                        .document(targetUid);
+        Map<String, Object> follow =
+                new HashMap<>();
 
-        DocumentReference followerRef =
-                db.collection("users")
-                        .document(targetUid)
-                        .collection("followers")
-                        .document(currentUid);
+        follow.put(
+                "fromUid",
+                currentUid);
 
-        followingRef.get()
-                .addOnSuccessListener(existing -> {
+        follow.put(
+                "toUid",
+                targetUid);
 
-                    WriteBatch batch =
-                            db.batch();
+        follow.put(
+                "createdAt",
+                FieldValue.serverTimestamp());
 
-                    if (existing.exists()) {
+        db.collection("users")
+                .document(targetUid)
+                .collection("followers")
+                .document(currentUid)
+                .set(follow)
+                .addOnSuccessListener(
+                        x -> {
 
-                        batch.delete(followingRef);
-                        batch.delete(followerRef);
+                            db.collection("users")
+                                    .document(targetUid)
+                                    .set(
+                                            incrementFollowers(),
+                                            SetOptions.merge());
 
-                        batch.update(
-                                db.collection("users")
-                                        .document(currentUid),
-                                "followingCount",
-                                FieldValue.increment(-1)
-                        );
+                            db.collection("users")
+                                    .document(currentUid)
+                                    .collection("following")
+                                    .document(targetUid)
+                                    .set(follow);
 
-                        batch.update(
-                                db.collection("users")
-                                        .document(targetUid),
-                                "followersCount",
-                                FieldValue.increment(-1)
-                        );
+                            addNotificationToUser(
+                                    targetUid,
+                                    "follow",
+                                    "Someone followed you");
 
-                        batch.commit()
-                                .addOnSuccessListener(x ->
-                                        toast("Unfollowed"))
-                                .addOnFailureListener(e ->
-                                        toast("Unfollow failed"));
-
-                    } else {
-
-                        Map<String, Object> following =
-                                new HashMap<>();
-
-                        following.put(
-                                "uid",
-                                targetUid
-                        );
-
-                        following.put(
-                                "name",
-                                targetName
-                        );
-
-                        following.put(
-                                "createdAt",
-                                FieldValue.serverTimestamp()
-                        );
-
-                        Map<String, Object> follower =
-                                new HashMap<>();
-
-                        follower.put(
-                                "uid",
-                                currentUid
-                        );
-
-                        batch.set(
-                                followingRef,
-                                following
-                        );
-
-                        batch.set(
-                                followerRef,
-                                follower
-                        );
-
-                        batch.update(
-                                db.collection("users")
-                                        .document(currentUid),
-                                "followingCount",
-                                FieldValue.increment(1)
-                        );
-
-                        batch.update(
-                                db.collection("users")
-                                        .document(targetUid),
-                                "followersCount",
-                                FieldValue.increment(1)
-                        );
-
-                        batch.commit()
-                                .addOnSuccessListener(x -> {
-
-                                    toast("Followed");
-
-                                    addNotification(
-                                            targetUid,
-                                            "follow",
-                                            "Someone followed you"
-                                    );
-
-                                    showLocalNotification(
-                                            "Viyzo",
-                                            "Follow saved"
-                                    );
-                                })
-                                .addOnFailureListener(e ->
-                                        toast("Follow failed"));
-                    }
-                });
+                            toast("Followed");
+                        })
+                .addOnFailureListener(
+                        e -> toast(
+                                "Follow failed: "
+                                        + e.getMessage()));
     }
+
+    private Map<String, Object>
+    incrementFollowers() {
+
+        Map<String, Object> data =
+                new HashMap<>();
+
+        data.put(
+                "followersCount",
+                FieldValue.increment(1));
+
+        return data;
+    }
+
+    /* =========================================================
+       FOLLOW LISTS
+       ========================================================= */
 
     private void showFollowLists() {
 
         root = baseRoot();
 
-        addTitle("Followers / Following");
+        addTitle("FOLLOWERS / FOLLOWING");
 
         Button followers =
                 button("MY FOLLOWERS");
 
         followers.setOnClickListener(
-                v -> showList("followers")
-        );
+                v -> showFollowers());
 
         root.addView(followers);
 
@@ -929,215 +1387,170 @@ public class MainActivity extends AppCompatActivity {
                 button("MY FOLLOWING");
 
         following.setOnClickListener(
-                v -> showList("following")
-        );
+                v -> showFollowing());
 
         root.addView(following);
 
-        Button back = button("BACK");
+        Button back =
+                button("BACK");
 
-        back.setOnClickListener(v -> showHome());
+        back.setOnClickListener(
+                v -> showHome());
 
         root.addView(back);
 
         setContentView(wrap());
     }
 
-    private void showList(String type) {
+    private void showFollowers() {
 
         root = baseRoot();
 
-        addTitle(
-                type.equals("followers") ?
-                        "Followers" :
-                        "Following"
-        );
+        addTitle("FOLLOWERS");
 
         db.collection("users")
                 .document(currentUid)
-                .collection(type)
+                .collection("followers")
                 .get()
-                .addOnSuccessListener(snapshot -> {
+                .addOnSuccessListener(
+                        snapshot -> {
 
-                    if (snapshot.isEmpty()) {
-                        addLabel("No users");
-                    }
+                            for (DocumentSnapshot doc :
+                                    snapshot.getDocuments()) {
 
-                    for (DocumentSnapshot doc :
-                            snapshot.getDocuments()) {
-
-                        String name =
-                                doc.getString("name");
-
-                        if (name == null) {
-                            name = doc.getId();
-                        }
-
-                        addLabel("👤 " + name);
-                    }
-                });
-
-        Button back = button("BACK");
-
-        back.setOnClickListener(v ->
-                showFollowLists());
-
-        root.addView(back);
-
-        setContentView(wrap());
-    }
-
-    private void searchUsersForMessage() {
-
-        root = baseRoot();
-
-        addTitle("Start Message");
-
-        EditText search =
-                input("Search user");
-
-        Button find =
-                button("SEARCH USER");
-
-        find.setOnClickListener(v -> {
-
-            String term =
-                    search.getText().toString().trim();
-
-            if (term.isEmpty()) {
-                toast("Enter name");
-                return;
-            }
-
-            db.collection("users")
-                    .get()
-                    .addOnSuccessListener(snapshot -> {
-
-                        for (DocumentSnapshot doc :
-                                snapshot.getDocuments()) {
-
-                            String name =
-                                    doc.getString("name");
-
-                            if (name != null &&
-                                    name.toLowerCase()
-                                            .contains(
-                                                    term.toLowerCase()
-                                            )) {
-
-                                Button b =
-                                        button(name);
-
-                                String uid =
-                                        doc.getId();
-
-                                b.setOnClickListener(
-                                        x ->
-                                                openChat(
-                                                        uid,
-                                                        name
-                                                )
-                                );
-
-                                root.addView(b);
+                                addLabel(
+                                        doc.getId());
                             }
-                        }
-                    });
-        });
 
-        root.addView(find);
+                            Button back =
+                                    button("BACK");
 
-        Button back = button("BACK");
+                            back.setOnClickListener(
+                                    v -> showFollowLists());
 
-        back.setOnClickListener(v -> showHome());
+                            root.addView(back);
 
-        root.addView(back);
-
-        setContentView(wrap());
+                            setContentView(wrap());
+                        });
     }
 
-    private String chatId(
-            String a,
-            String b) {
-
-        if (a.compareTo(b) < 0) {
-            return a + "_" + b;
-        }
-
-        return b + "_" + a;
-    }
-
-    private void openChat(
-            String targetUid,
-            String targetName) {
-
-        String id =
-                chatId(currentUid, targetUid);
+    private void showFollowing() {
 
         root = baseRoot();
 
-        addTitle("Chat: " + targetName);
+        addTitle("FOLLOWING");
 
-        LinearLayout messages =
-                new LinearLayout(this);
+        db.collection("users")
+                .document(currentUid)
+                .collection("following")
+                .get()
+                .addOnSuccessListener(
+                        snapshot -> {
 
-        messages.setOrientation(
-                LinearLayout.VERTICAL
-        );
+                            for (DocumentSnapshot doc :
+                                    snapshot.getDocuments()) {
 
-        root.addView(messages);
+                                addLabel(
+                                        doc.getId());
+                            }
 
-        loadMessages(id, messages);
+                            Button back =
+                                    button("BACK");
 
-        EditText text =
-                input("Write message");
+                            back.setOnClickListener(
+                                    v -> showFollowLists());
 
-        root.addView(text);
+                            root.addView(back);
+
+                            setContentView(wrap());
+                        });
+    }
+
+    /* =========================================================
+       MESSAGES
+       ========================================================= */
+
+    private void showMessages() {
+
+        root = baseRoot();
+
+        addTitle("MESSAGES");
+
+        EditText receiver =
+                input("Receiver UID");
+
+        EditText message =
+                input("Message");
+
+        root.addView(receiver);
+        root.addView(message);
 
         Button send =
-                button("SEND");
+                button("SEND MESSAGE");
 
         send.setOnClickListener(v -> {
 
-            String message =
-                    text.getText().toString().trim();
+            String uid =
+                    receiver.getText()
+                            .toString()
+                            .trim();
 
-            if (message.isEmpty()) {
+            String text =
+                    message.getText()
+                            .toString()
+                            .trim();
+
+            if (uid.isEmpty()
+                    || text.isEmpty()) {
+
+                toast("Receiver and message required");
+
                 return;
             }
+
+            String chatId =
+                    currentUid.compareTo(uid) < 0
+                            ? currentUid + "_" + uid
+                            : uid + "_" + currentUid;
 
             Map<String, Object> data =
                     new HashMap<>();
 
-            data.put("senderUid", currentUid);
-            data.put("receiverUid", targetUid);
-            data.put("message", message);
+            data.put(
+                    "senderUid",
+                    currentUid);
+
+            data.put(
+                    "receiverUid",
+                    uid);
+
+            data.put(
+                    "message",
+                    text);
+
             data.put(
                     "createdAt",
-                    FieldValue.serverTimestamp()
-            );
+                    FieldValue.serverTimestamp());
 
             db.collection("chats")
-                    .document(id)
+                    .document(chatId)
                     .collection("messages")
                     .add(data)
-                    .addOnSuccessListener(x -> {
+                    .addOnSuccessListener(
+                            x -> {
 
-                        text.setText("");
+                                toast(
+                                        "Message sent");
 
-                        loadMessages(
-                                id,
-                                messages
-                        );
-
-                        addNotification(
-                                targetUid,
-                                "message",
-                                "You received a new message"
-                        );
-                    })
-                    .addOnFailureListener(e ->
-                            toast("Message failed"));
+                                addNotificationToUser(
+                                        uid,
+                                        "message",
+                                        "You received a Viyzo message");
+                            })
+                    .addOnFailureListener(
+                            e -> toast(
+                                    "Message failed: "
+                                            + e.getMessage()));
         });
 
         root.addView(send);
@@ -1145,101 +1558,68 @@ public class MainActivity extends AppCompatActivity {
         Button back =
                 button("BACK");
 
-        back.setOnClickListener(v ->
-                searchUsersForMessage());
+        back.setOnClickListener(
+                v -> showHome());
 
         root.addView(back);
 
         setContentView(wrap());
     }
 
-    private void loadMessages(
-            String id,
-            LinearLayout messages) {
-
-        messages.removeAllViews();
-
-        db.collection("chats")
-                .document(id)
-                .collection("messages")
-                .get()
-                .addOnSuccessListener(snapshot -> {
-
-                    for (DocumentSnapshot doc :
-                            snapshot.getDocuments()) {
-
-                        String sender =
-                                doc.getString("senderUid");
-
-                        String message =
-                                doc.getString("message");
-
-                        addLabelTo(
-                                messages,
-                                (currentUid.equals(sender) ?
-                                        "You: " :
-                                        "User: ") +
-                                        message
-                        );
-                    }
-                });
-    }
+    /* =========================================================
+       NOTIFICATIONS
+       ========================================================= */
 
     private void showNotifications() {
 
         root = baseRoot();
 
-        addTitle("Notifications 🔔");
+        addTitle("NOTIFICATIONS");
 
         db.collection("users")
                 .document(currentUid)
                 .collection("notifications")
+                .orderBy(
+                        "createdAt",
+                        Query.Direction.DESCENDING)
+                .limit(50)
                 .get()
-                .addOnSuccessListener(snapshot -> {
+                .addOnSuccessListener(
+                        snapshot -> {
 
-                    if (snapshot.isEmpty()) {
-                        addLabel("No notifications");
-                    }
+                            for (DocumentSnapshot doc :
+                                    snapshot.getDocuments()) {
 
-                    for (DocumentSnapshot doc :
-                            snapshot.getDocuments()) {
+                                String message =
+                                        doc.getString(
+                                                "message");
 
-                        String type =
-                                doc.getString("type");
+                                addLabel(
+                                        message == null
+                                                ? ""
+                                                : message);
+                            }
 
-                        String message =
-                                doc.getString("message");
+                            Button read =
+                                    button(
+                                            "MARK ALL AS READ");
 
-                        addLabel(
-                                "🔔 " +
-                                (type == null ?
-                                        "" : type) +
-                                "\n" +
-                                (message == null ?
-                                        "" : message)
-                        );
-                    }
-                });
+                            read.setOnClickListener(
+                                    v -> markNotificationsRead());
 
-        Button mark =
-                button("MARK AS READ");
+                            root.addView(read);
 
-        mark.setOnClickListener(
-                v -> markNotificationsRead()
-        );
+                            Button back =
+                                    button("BACK");
 
-        root.addView(mark);
+                            back.setOnClickListener(
+                                    v -> showHome());
 
-        Button back =
-                button("BACK");
+                            root.addView(back);
 
-        back.setOnClickListener(
-                v -> showHome()
-        );
-
-        root.addView(back);
-
-        setContentView(wrap());
+                            setContentView(
+                                    wrap());
+                        });
     }
 
     private void markNotificationsRead() {
@@ -1247,56 +1627,30 @@ public class MainActivity extends AppCompatActivity {
         db.collection("users")
                 .document(currentUid)
                 .collection("notifications")
+                .whereEqualTo(
+                        "read",
+                        false)
                 .get()
-                .addOnSuccessListener(snapshot -> {
+                .addOnSuccessListener(
+                        snapshot -> {
 
-                    WriteBatch batch =
-                            db.batch();
+                            WriteBatch batch =
+                                    db.batch();
 
-                    for (DocumentSnapshot doc :
-                            snapshot.getDocuments()) {
+                            for (DocumentSnapshot doc :
+                                    snapshot.getDocuments()) {
 
-                        batch.update(
-                                doc.getReference(),
-                                "read",
-                                true
-                        );
-                    }
+                                batch.update(
+                                        doc.getReference(),
+                                        "read",
+                                        true);
+                            }
 
-                    batch.commit()
-                            .addOnSuccessListener(
-                                    x -> toast(
-                                            "Notifications marked read"
-                                    )
-                            );
-                });
-    }
-
-    private void addNotification(
-            String type,
-            String message) {
-
-        addNotification(
-                currentUid,
-                type,
-                message
-        );
-    }
-
-    private void addNotification(
-            String uid,
-            String type,
-            String message) {
-
-        if (uid == null) {
-            return;
-        }
-
-        addNotificationToUser(
-                uid,
-                type,
-                message
-        );
+                            batch.commit()
+                                    .addOnSuccessListener(
+                                            x -> toast(
+                                                    "Notifications read"));
+                        });
     }
 
     private void addNotificationToUser(
@@ -1304,118 +1658,105 @@ public class MainActivity extends AppCompatActivity {
             String type,
             String message) {
 
-        Map<String, Object> data =
+        if (uid == null
+                || uid.equals(currentUid)) {
+            return;
+        }
+
+        Map<String, Object> n =
                 new HashMap<>();
 
-        data.put("type", type);
-        data.put("message", message);
-        data.put("read", false);
-        data.put(
+        n.put(
+                "type",
+                type);
+
+        n.put(
+                "message",
+                message);
+
+        n.put(
+                "fromUid",
+                currentUid);
+
+        n.put(
+                "read",
+                false);
+
+        n.put(
                 "createdAt",
-                FieldValue.serverTimestamp()
-        );
+                FieldValue.serverTimestamp());
 
         db.collection("users")
                 .document(uid)
                 .collection("notifications")
-                .add(data);
+                .add(n);
     }
 
-    private void showLocalNotification(
-            String title,
-            String message) {
-
-        if (Build.VERSION.SDK_INT >= 33 &&
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED) {
-
-            return;
-        }
-
-        NotificationManager manager =
-                (NotificationManager)
-                        getSystemService(
-                                NOTIFICATION_SERVICE
-                        );
-
-        if (manager == null) {
-            return;
-        }
-
-        NotificationCompat.Builder builder =
-                new NotificationCompat.Builder(
-                        this,
-                        "viyzo_notifications"
-                )
-                        .setSmallIcon(
-                                android.R.drawable.ic_dialog_info
-                        )
-                        .setContentTitle(title)
-                        .setContentText(message)
-                        .setPriority(
-                                NotificationCompat.PRIORITY_DEFAULT
-                        )
-                        .setAutoCancel(true);
-
-        manager.notify(
-                (int) System.currentTimeMillis(),
-                builder.build()
-        );
-    }
+    /* =========================================================
+       REPORT
+       ========================================================= */
 
     private void showReport() {
 
         root = baseRoot();
 
-        addTitle("Report / Dispute");
+        addTitle("REPORT / DISPUTE");
 
         EditText reason =
-                input("Enter your complaint");
+                input("Write report or dispute");
+
+        root.addView(reason);
 
         Button send =
-                button("SUBMIT REPORT");
+                button("SEND REPORT");
 
         send.setOnClickListener(v -> {
 
             String text =
-                    reason.getText().toString().trim();
+                    reason.getText()
+                            .toString()
+                            .trim();
 
             if (text.isEmpty()) {
-                toast("Enter complaint");
+
+                toast("Write the reason");
+
                 return;
             }
 
             Map<String, Object> data =
                     new HashMap<>();
 
-            data.put("uid", currentUid);
-            data.put("reason", text);
+            data.put(
+                    "uid",
+                    currentUid);
+
+            data.put(
+                    "reason",
+                    text);
+
+            data.put(
+                    "status",
+                    "open");
+
             data.put(
                     "createdAt",
-                    FieldValue.serverTimestamp()
-            );
-            data.put("status", "pending");
+                    FieldValue.serverTimestamp());
 
             db.collection("reports")
                     .add(data)
-                    .addOnSuccessListener(x -> {
+                    .addOnSuccessListener(
+                            x -> {
 
-                        toast(
-                                "Report submitted"
-                        );
+                                toast(
+                                        "Report submitted");
 
-                        addNotification(
-                                currentUid,
-                                "report",
-                                "Your report was submitted"
-                        );
-
-                        showHome();
-                    })
-                    .addOnFailureListener(e ->
-                            toast("Report failed"));
+                                showHome();
+                            })
+                    .addOnFailureListener(
+                            e -> toast(
+                                    "Report failed: "
+                                            + e.getMessage()));
         });
 
         root.addView(send);
@@ -1424,32 +1765,62 @@ public class MainActivity extends AppCompatActivity {
                 button("BACK");
 
         back.setOnClickListener(
-                v -> showHome()
-        );
+                v -> showHome());
 
         root.addView(back);
 
         setContentView(wrap());
     }
 
+    /* =========================================================
+       NOTIFICATION CHANNEL
+       ========================================================= */
+
+    private void createNotificationChannel() {
+
+        if (Build.VERSION.SDK_INT >= 26) {
+
+            NotificationChannel channel =
+                    new NotificationChannel(
+                            "viyzo_notifications",
+                            "Viyzo Notifications",
+                            NotificationManager
+                                    .IMPORTANCE_DEFAULT);
+
+            NotificationManager manager =
+                    getSystemService(
+                            NotificationManager.class);
+
+            if (manager != null) {
+
+                manager.createNotificationChannel(
+                        channel);
+            }
+        }
+    }
+
+    /* =========================================================
+       UI HELPERS
+       ========================================================= */
+
     private LinearLayout baseRoot() {
 
-        LinearLayout layout =
+        LinearLayout r =
                 new LinearLayout(this);
 
-        layout.setOrientation(
-                LinearLayout.VERTICAL
-        );
+        r.setOrientation(
+                LinearLayout.VERTICAL);
 
-        layout.setPadding(
-                25, 25, 25, 25
-        );
+        r.setPadding(
+                28,
+                28,
+                28,
+                28);
 
-        layout.setBackgroundColor(
-                Color.rgb(18, 18, 22)
-        );
+        r.setBackgroundColor(
+                Color.rgb(20, 20, 24));
 
-        return layout;
+        return r;
     }
 
     private ScrollView wrap() {
@@ -1464,112 +1835,146 @@ public class MainActivity extends AppCompatActivity {
         return scroll;
     }
 
-    private void addTitle(String text) {
+    private void addTitle(
+            String text) {
 
         TextView title =
                 new TextView(this);
 
         title.setText(text);
-        title.setTextColor(Color.WHITE);
+
+        title.setTextColor(
+                Color.WHITE);
+
         title.setTextSize(28);
-        title.setGravity(Gravity.CENTER);
-        title.setTypeface(
-                null,
-                android.graphics.Typeface.BOLD
-        );
+
+        title.setGravity(
+                Gravity.CENTER);
 
         title.setPadding(
-                0, 10, 0, 25
-        );
+                0,
+                10,
+                0,
+                25);
 
         root.addView(title);
     }
 
-    private void addLabel(String text) {
-
-        addLabelTo(root, text);
-    }
-
-    private void addLabelTo(
-            LinearLayout parent,
+    private void addLabel(
             String text) {
 
-        TextView tv =
+        TextView label =
                 new TextView(this);
 
-        tv.setText(text);
-        tv.setTextColor(Color.WHITE);
-        tv.setTextSize(17);
-        tv.setPadding(
-                10, 15, 10, 15
-        );
+        label.setText(
+                text == null
+                        ? ""
+                        : text);
 
-        parent.addView(tv);
+        label.setTextColor(
+                Color.WHITE);
+
+        label.setTextSize(17);
+
+        label.setPadding(
+                10,
+                12,
+                10,
+                12);
+
+        root.addView(label);
     }
 
-    private EditText input(String hint) {
+    private EditText input(
+            String hint) {
 
         EditText edit =
                 new EditText(this);
 
         edit.setHint(hint);
+
+        edit.setTextColor(
+                Color.WHITE);
+
         edit.setHintTextColor(
-                Color.LTGRAY
-        );
-        edit.setTextColor(Color.WHITE);
+                Color.LTGRAY);
+
         edit.setTextSize(16);
 
-        edit.setSingleLine(false);
-
         edit.setPadding(
-                15, 15, 15, 15
-        );
+                15,
+                12,
+                15,
+                12);
 
-        LinearLayout.LayoutParams params =
+        LinearLayout.LayoutParams lp =
                 new LinearLayout.LayoutParams(
                         -1,
-                        -2
-                );
+                        -2);
 
-        params.setMargins(
-                0, 8, 0, 8
-        );
+        lp.setMargins(
+                0,
+                8,
+                0,
+                8);
 
-        root.addView(edit, params);
+        edit.setLayoutParams(lp);
 
         return edit;
     }
 
-    private Button button(String text) {
+    private Button button(
+            String text) {
 
         Button b =
                 new Button(this);
 
         b.setText(text);
+
         b.setTextSize(15);
+
         b.setAllCaps(false);
 
-        LinearLayout.LayoutParams params =
+        LinearLayout.LayoutParams lp =
                 new LinearLayout.LayoutParams(
                         -1,
-                        -2
-                );
+                        -2);
 
-        params.setMargins(
-                0, 8, 0, 8
-        );
+        lp.setMargins(
+                0,
+                7,
+                0,
+                7);
 
-        root.addView(b, params);
+        b.setLayoutParams(lp);
 
         return b;
     }
 
-    private void toast(String text) {
+    private void toast(
+            String message) {
 
-        Toast.makeText(
-                this,
-                text,
-                Toast.LENGTH_SHORT
-        ).show();
+        runOnUiThread(() ->
+                Toast.makeText(
+                        this,
+                        message,
+                        Toast.LENGTH_LONG)
+                        .show());
+    }
+
+    private String safe(
+            String value) {
+
+        return value == null
+                ? ""
+                : value;
+    }
+
+    private String value(
+            Object value) {
+
+        return value == null
+                ? "0"
+                : String.valueOf(value);
     }
 }
