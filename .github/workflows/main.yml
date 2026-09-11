@@ -155,4 +155,4 @@ jobs:
         with:
           name: Viyzo-APK
           path: project/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          - name: Extract Viyzo starter
