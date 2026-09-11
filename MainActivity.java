@@ -1,4 +1,4 @@
-package com.viyzo.app;
+((int) package com.viyzo.app;
 
 import android.Manifest;
 import android.app.NotificationChannel;
@@ -1144,3 +1144,4 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, text, Toast.LENGTH_LONG).show();
     }
 }
+.currentTi
