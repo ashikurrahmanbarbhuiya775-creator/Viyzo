@@ -1,4 +1,4 @@
-name: Build Viyzo APK
+name: Build Viyzo APK - CLEAN
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -20,10 +20,15 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle
+      - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+
+      - name: Check required files
+        run: |
+          test -f MainActivity.java
+          test -f google-services.json
 
       - name: Create clean Android project
         run: |
@@ -131,21 +136,15 @@ jobs:
                   </activity>
 
               </application>
-
           </manifest>
           EOF
 
-      - name: Copy MainActivity
+      - name: Copy app source files
         run: |
-          test -f MainActivity.java
           cp MainActivity.java project/app/src/main/java/com/viyzo/app/MainActivity.java
-
-      - name: Copy Firebase configuration
-        run: |
-          test -f google-services.json
           cp google-services.json project/app/google-services.json
 
-      - name: Build APK
+      - name: Build debug APK
         run: |
           cd project
           gradle :app:assembleDebug --no-daemon --stacktrace
@@ -153,6 +152,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Viyzo-APK
+          name: Viyzo-APK-CLEAN
           path: project/app/build/outputs/apk/debug/app-debug.apk
-          - name: Extract Viyzo starter
+          if-no-files-found: error
