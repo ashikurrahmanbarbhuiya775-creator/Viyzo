@@ -1,6 +1,9 @@
 name: Build Viyzo APK - CLEAN
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -33,6 +36,7 @@ jobs:
       - name: Create clean Android project
         run: |
           rm -rf project
+
           mkdir -p project/app/src/main/java/com/viyzo/app
           mkdir -p project/app/src/main/res/values
 
@@ -141,6 +145,7 @@ jobs:
                   </activity>
 
               </application>
+
           </manifest>
           EOF
 
