@@ -36,6 +36,11 @@ jobs:
           mkdir -p project/app/src/main/java/com/viyzo/app
           mkdir -p project/app/src/main/res/values
 
+          cat > project/gradle.properties <<'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+
           cat > project/settings.gradle <<'EOF'
           pluginManagement {
               repositories {
