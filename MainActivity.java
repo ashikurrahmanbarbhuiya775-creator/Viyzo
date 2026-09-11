@@ -272,6 +272,10 @@ public class MainActivity extends AppCompatActivity {
         report.setOnClickListener(v -> showReport());
         root.addView(report);
 
+        Button admin = button("ADMIN DASHBOARD");
+        admin.setOnClickListener(v -> showAdminDashboard());
+        root.addView(admin);
+
         Button logout = button("LOGOUT");
         logout.setOnClickListener(v -> {
             auth.signOut();
@@ -281,6 +285,167 @@ public class MainActivity extends AppCompatActivity {
         });
         root.addView(logout);
 
+        setContentView(wrap());
+    }
+
+    private void showAdminDashboard() {
+        FirebaseUser adminUser = auth.getCurrentUser();
+        if (adminUser == null) {
+            toast("Please login first");
+            return;
+        }
+
+        root = baseRoot();
+        addTitle("VIYZO ADMIN DASHBOARD");
+        addLabel("Loading dashboard...");
+        setContentView(wrap());
+
+        db.collection("users").get()
+                .addOnSuccessListener(users -> {
+                    int userCount = users.size();
+                    db.collection("videos").get()
+                            .addOnSuccessListener(videos -> {
+                                int videoCount = videos.size();
+                                db.collection("reports").get()
+                                        .addOnSuccessListener(reports -> {
+                                            int reportCount = reports.size();
+                                            root.removeAllViews();
+                                            addTitle("VIYZO ADMIN DASHBOARD");
+                                            addLabel("Total users: " + userCount);
+                                            addLabel("Total video records: " + videoCount);
+                                            addLabel("Total reports: " + reportCount);
+                                            addLabel("Your account: " +
+                                                    (adminUser.getEmail() == null ? "" : adminUser.getEmail()));
+
+                                            Button usersButton = button("VIEW USERS");
+                                            usersButton.setOnClickListener(v -> showAdminUsers());
+                                            root.addView(usersButton);
+
+                                            Button reportsButton = button("VIEW REPORTS");
+                                            reportsButton.setOnClickListener(v -> showAdminReports());
+                                            root.addView(reportsButton);
+
+                                            Button refresh = button("REFRESH DASHBOARD");
+                                            refresh.setOnClickListener(v -> showAdminDashboard());
+                                            root.addView(refresh);
+
+                                            Button back = button("BACK TO HOME");
+                                            back.setOnClickListener(v -> showHome());
+                                            root.addView(back);
+                                        })
+                                        .addOnFailureListener(e ->
+                                                showAdminError("Reports failed: " + e.getMessage()));
+                            })
+                            .addOnFailureListener(e ->
+                                    showAdminError("Videos failed: " + e.getMessage()));
+                })
+                .addOnFailureListener(e ->
+                        showAdminError("Users failed: " + e.getMessage()));
+    }
+
+    private void showAdminUsers() {
+        root = baseRoot();
+        addTitle("ALL USERS");
+        addLabel("Loading users...");
+        setContentView(wrap());
+
+        db.collection("users").orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(100)
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    root.removeAllViews();
+                    addTitle("ALL USERS");
+                    if (snapshot.isEmpty()) {
+                        addLabel("No users found.");
+                    } else {
+                        for (DocumentSnapshot doc : snapshot.getDocuments()) {
+                            String name = doc.getString("name");
+                            String email = doc.getString("email");
+                            Long followers = doc.getLong("followersCount");
+                            Long following = doc.getLong("followingCount");
+                            Long likes = doc.getLong("likesReceived");
+                            addLabel(
+                                    "Name: " + (name == null ? "User" : name) +
+                                    "\nEmail: " + (email == null ? "" : email) +
+                                    "\nFollowers: " + (followers == null ? 0 : followers) +
+                                    " | Following: " + (following == null ? 0 : following) +
+                                    " | Likes: " + (likes == null ? 0 : likes) +
+                                    "\nUID: " + doc.getId()
+                            );
+                        }
+                    }
+                    Button back = button("BACK TO ADMIN DASHBOARD");
+                    back.setOnClickListener(v -> showAdminDashboard());
+                    root.addView(back);
+                    setContentView(wrap());
+                })
+                .addOnFailureListener(e ->
+                        showAdminError("User list failed: " + e.getMessage()));
+    }
+
+    private void showAdminReports() {
+        root = baseRoot();
+        addTitle("USER REPORTS");
+        addLabel("Loading reports...");
+        setContentView(wrap());
+
+        db.collection("reports").orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(100)
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    root.removeAllViews();
+                    addTitle("USER REPORTS");
+                    if (snapshot.isEmpty()) {
+                        addLabel("No reports found.");
+                    } else {
+                        for (DocumentSnapshot doc : snapshot.getDocuments()) {
+                            String uid = doc.getString("uid");
+                            String email = doc.getString("email");
+                            String reason = doc.getString("reason");
+                            String status = doc.getString("status");
+
+                            addLabel(
+                                    "Email: " + (email == null ? "" : email) +
+                                    "\nReason: " + (reason == null ? "" : reason) +
+                                    "\nStatus: " + (status == null ? "open" : status) +
+                                    "\nUID: " + (uid == null ? "" : uid)
+                            );
+
+                            Button resolve = button("MARK RESOLVED");
+                            resolve.setOnClickListener(v -> {
+                                resolve.setEnabled(false);
+                                doc.getReference().update("status", "resolved")
+                                        .addOnSuccessListener(x -> {
+                                            toast("Report resolved");
+                                            showAdminReports();
+                                        })
+                                        .addOnFailureListener(e -> {
+                                            resolve.setEnabled(true);
+                                            toast("Update failed: " + e.getMessage());
+                                        });
+                            });
+                            root.addView(resolve);
+                        }
+                    }
+                    Button back = button("BACK TO ADMIN DASHBOARD");
+                    back.setOnClickListener(v -> showAdminDashboard());
+                    root.addView(back);
+                    setContentView(wrap());
+                })
+                .addOnFailureListener(e ->
+                        showAdminError("Reports list failed: " + e.getMessage()));
+    }
+
+    private void showAdminError(String message) {
+        root.removeAllViews();
+        addTitle("ADMIN DASHBOARD");
+        addLabel(message);
+        Button retry = button("RETRY");
+        retry.setOnClickListener(v -> showAdminDashboard());
+        root.addView(retry);
+        Button back = button("BACK TO HOME");
+        back.setOnClickListener(v -> showHome());
+        root.addView(back);
         setContentView(wrap());
     }
 
