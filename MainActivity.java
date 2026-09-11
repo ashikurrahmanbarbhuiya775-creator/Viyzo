@@ -11,14 +11,15 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
+import android.view.Surface;
+import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.VideoView;
-import android.widget.MediaController;
+import android.media.MediaPlayer;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -48,7 +49,8 @@ public class MainActivity extends AppCompatActivity {
     private FirebaseAuth auth;
     private FirebaseFirestore db;
     private LinearLayout root;
-    private VideoView videoView;
+    private TextureView videoView;
+    private MediaPlayer mediaPlayer;
     private Uri selectedVideo;
     private String currentUid;
 
@@ -57,9 +59,7 @@ public class MainActivity extends AppCompatActivity {
                 if (uri != null) {
                     selectedVideo = uri;
                     if (videoView != null) {
-                        videoView.setVideoURI(uri);
-                        videoView.setMediaController(new MediaController(this));
-                        videoView.requestFocus();
+                        playSelectedVideo(uri);
                     }
                     saveVideoMetadata();
                     toast("Video selected");
@@ -206,17 +206,22 @@ public class MainActivity extends AppCompatActivity {
         addTitle("VIYZO");
         addLabel("Welcome to VIYZO");
 
-        videoView = new VideoView(this);
+        videoView = new TextureView(this);
         videoView.setBackgroundColor(Color.BLACK);
-        videoView.setZOrderOnTop(true);
-        videoView.setZOrderMediaOverlay(true);
-        videoView.setOnPreparedListener(mp -> {
-            mp.setLooping(true);
-            videoView.requestFocus();
-            videoView.start();
+        videoView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+            @Override public void onSurfaceTextureAvailable(android.graphics.SurfaceTexture surface, int width, int height) {
+                if (selectedVideo != null) playSelectedVideo(selectedVideo);
+            }
+            @Override public void onSurfaceTextureSizeChanged(android.graphics.SurfaceTexture surface, int width, int height) {}
+            @Override public boolean onSurfaceTextureDestroyed(android.graphics.SurfaceTexture surface) {
+                if (mediaPlayer != null) {
+                    mediaPlayer.setSurface(null);
+                }
+                return true;
+            }
+            @Override public void onSurfaceTextureUpdated(android.graphics.SurfaceTexture surface) {}
         });
-        LinearLayout.LayoutParams vp =
-                new LinearLayout.LayoutParams(-1, 520);
+        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(-1, 520);
         vp.setMargins(0, 15, 0, 15);
         root.addView(videoView, vp);
 
@@ -243,7 +248,7 @@ public class MainActivity extends AppCompatActivity {
         Button delete = button("DELETE SELECTED VIDEO");
         delete.setOnClickListener(v -> {
             selectedVideo = null;
-            if (videoView != null) videoView.stopPlayback();
+            stopVideo();
             toast("Selected video removed from this screen");
         });
         root.addView(delete);
@@ -256,9 +261,9 @@ public class MainActivity extends AppCompatActivity {
         search.setOnClickListener(v -> searchUsers());
         root.addView(search);
 
-        Button follow = button("FOLLOWERS / FOLLOWING");
-        follow.setOnClickListener(v -> showFollowLists());
-        root.addView(follow);
+        Button follows = button("FOLLOWERS / FOLLOWING");
+        follows.setOnClickListener(v -> showFollowLists());
+        root.addView(follows);
 
         Button messages = button("MESSAGES");
         messages.setOnClickListener(v -> searchUsersForMessage());
@@ -278,6 +283,7 @@ public class MainActivity extends AppCompatActivity {
 
         Button logout = button("LOGOUT");
         logout.setOnClickListener(v -> {
+            stopVideo();
             auth.signOut();
             currentUid = null;
             selectedVideo = null;
@@ -288,165 +294,37 @@ public class MainActivity extends AppCompatActivity {
         setContentView(wrap());
     }
 
-    private void showAdminDashboard() {
-        FirebaseUser adminUser = auth.getCurrentUser();
-        if (adminUser == null) {
-            toast("Please login first");
-            return;
+    private void playSelectedVideo(Uri uri) {
+        if (uri == null || videoView == null || !videoView.isAvailable()) return;
+        try {
+            stopVideo();
+            mediaPlayer = new MediaPlayer();
+            mediaPlayer.setDataSource(this, uri);
+            Surface surface = new Surface(videoView.getSurfaceTexture());
+            mediaPlayer.setSurface(surface);
+            mediaPlayer.setOnPreparedListener(mp -> {
+                mp.setLooping(true);
+                mp.start();
+            });
+            mediaPlayer.setOnErrorListener((mp, what, extra) -> {
+                toast("Video playback failed");
+                return true;
+            });
+            mediaPlayer.prepareAsync();
+        } catch (Exception e) {
+            toast("Video failed: " + e.getMessage());
         }
-
-        root = baseRoot();
-        addTitle("VIYZO ADMIN DASHBOARD");
-        addLabel("Loading dashboard...");
-        setContentView(wrap());
-
-        db.collection("users").get()
-                .addOnSuccessListener(users -> {
-                    int userCount = users.size();
-                    db.collection("videos").get()
-                            .addOnSuccessListener(videos -> {
-                                int videoCount = videos.size();
-                                db.collection("reports").get()
-                                        .addOnSuccessListener(reports -> {
-                                            int reportCount = reports.size();
-                                            root.removeAllViews();
-                                            addTitle("VIYZO ADMIN DASHBOARD");
-                                            addLabel("Total users: " + userCount);
-                                            addLabel("Total video records: " + videoCount);
-                                            addLabel("Total reports: " + reportCount);
-                                            addLabel("Your account: " +
-                                                    (adminUser.getEmail() == null ? "" : adminUser.getEmail()));
-
-                                            Button usersButton = button("VIEW USERS");
-                                            usersButton.setOnClickListener(v -> showAdminUsers());
-                                            root.addView(usersButton);
-
-                                            Button reportsButton = button("VIEW REPORTS");
-                                            reportsButton.setOnClickListener(v -> showAdminReports());
-                                            root.addView(reportsButton);
-
-                                            Button refresh = button("REFRESH DASHBOARD");
-                                            refresh.setOnClickListener(v -> showAdminDashboard());
-                                            root.addView(refresh);
-
-                                            Button back = button("BACK TO HOME");
-                                            back.setOnClickListener(v -> showHome());
-                                            root.addView(back);
-                                        })
-                                        .addOnFailureListener(e ->
-                                                showAdminError("Reports failed: " + e.getMessage()));
-                            })
-                            .addOnFailureListener(e ->
-                                    showAdminError("Videos failed: " + e.getMessage()));
-                })
-                .addOnFailureListener(e ->
-                        showAdminError("Users failed: " + e.getMessage()));
     }
 
-    private void showAdminUsers() {
-        root = baseRoot();
-        addTitle("ALL USERS");
-        addLabel("Loading users...");
-        setContentView(wrap());
-
-        db.collection("users").orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(100)
-                .get()
-                .addOnSuccessListener(snapshot -> {
-                    root.removeAllViews();
-                    addTitle("ALL USERS");
-                    if (snapshot.isEmpty()) {
-                        addLabel("No users found.");
-                    } else {
-                        for (DocumentSnapshot doc : snapshot.getDocuments()) {
-                            String name = doc.getString("name");
-                            String email = doc.getString("email");
-                            Long followers = doc.getLong("followersCount");
-                            Long following = doc.getLong("followingCount");
-                            Long likes = doc.getLong("likesReceived");
-                            addLabel(
-                                    "Name: " + (name == null ? "User" : name) +
-                                    "\nEmail: " + (email == null ? "" : email) +
-                                    "\nFollowers: " + (followers == null ? 0 : followers) +
-                                    " | Following: " + (following == null ? 0 : following) +
-                                    " | Likes: " + (likes == null ? 0 : likes) +
-                                    "\nUID: " + doc.getId()
-                            );
-                        }
-                    }
-                    Button back = button("BACK TO ADMIN DASHBOARD");
-                    back.setOnClickListener(v -> showAdminDashboard());
-                    root.addView(back);
-                    setContentView(wrap());
-                })
-                .addOnFailureListener(e ->
-                        showAdminError("User list failed: " + e.getMessage()));
-    }
-
-    private void showAdminReports() {
-        root = baseRoot();
-        addTitle("USER REPORTS");
-        addLabel("Loading reports...");
-        setContentView(wrap());
-
-        db.collection("reports").orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(100)
-                .get()
-                .addOnSuccessListener(snapshot -> {
-                    root.removeAllViews();
-                    addTitle("USER REPORTS");
-                    if (snapshot.isEmpty()) {
-                        addLabel("No reports found.");
-                    } else {
-                        for (DocumentSnapshot doc : snapshot.getDocuments()) {
-                            String uid = doc.getString("uid");
-                            String email = doc.getString("email");
-                            String reason = doc.getString("reason");
-                            String status = doc.getString("status");
-
-                            addLabel(
-                                    "Email: " + (email == null ? "" : email) +
-                                    "\nReason: " + (reason == null ? "" : reason) +
-                                    "\nStatus: " + (status == null ? "open" : status) +
-                                    "\nUID: " + (uid == null ? "" : uid)
-                            );
-
-                            Button resolve = button("MARK RESOLVED");
-                            resolve.setOnClickListener(v -> {
-                                resolve.setEnabled(false);
-                                doc.getReference().update("status", "resolved")
-                                        .addOnSuccessListener(x -> {
-                                            toast("Report resolved");
-                                            showAdminReports();
-                                        })
-                                        .addOnFailureListener(e -> {
-                                            resolve.setEnabled(true);
-                                            toast("Update failed: " + e.getMessage());
-                                        });
-                            });
-                            root.addView(resolve);
-                        }
-                    }
-                    Button back = button("BACK TO ADMIN DASHBOARD");
-                    back.setOnClickListener(v -> showAdminDashboard());
-                    root.addView(back);
-                    setContentView(wrap());
-                })
-                .addOnFailureListener(e ->
-                        showAdminError("Reports list failed: " + e.getMessage()));
-    }
-
-    private void showAdminError(String message) {
-        root.removeAllViews();
-        addTitle("ADMIN DASHBOARD");
-        addLabel(message);
-        Button retry = button("RETRY");
-        retry.setOnClickListener(v -> showAdminDashboard());
-        root.addView(retry);
-        Button back = button("BACK TO HOME");
-        back.setOnClickListener(v -> showHome());
-        root.addView(back);
-        setContentView(wrap());
+    private void stopVideo() {
+        if (mediaPlayer != null) {
+            try {
+                if (mediaPlayer.isPlaying()) mediaPlayer.stop();
+            } catch (Exception ignored) {}
+            try { mediaPlayer.reset(); } catch (Exception ignored) {}
+            try { mediaPlayer.release(); } catch (Exception ignored) {}
+            mediaPlayer = null;
+        }
     }
 
     private void saveVideoMetadata() {
