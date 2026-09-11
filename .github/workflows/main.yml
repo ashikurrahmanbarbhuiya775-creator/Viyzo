@@ -20,12 +20,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Setup Android
+        uses: android-actions/setup-android@v3
+
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Check files
+      - name: Check required files
         run: |
           test -f MainActivity.java
           test -f google-services.json
@@ -112,6 +115,20 @@ jobs:
           }
           EOF
 
+          cat > project/app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme"
+                     parent="Theme.AppCompat.DayNight.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:statusBarColor">#000000</item>
+                  <item name="android:navigationBarColor">#000000</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowLightNavigationBar">false</item>
+              </style>
+          </resources>
+          EOF
+
           cat > project/app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -141,32 +158,25 @@ jobs:
           </manifest>
           EOF
 
-          cat > project/app/src/main/res/values/styles.xml <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-
-              <style name="AppTheme"
-                     parent="Theme.AppCompat.DayNight.NoActionBar">
-                  <item name="android:fontFamily">sans</item>
-                  <item name="android:windowLightStatusBar">false</item>
-                  <item name="android:statusBarColor">#000000</item>
-                  <item name="android:navigationBarColor">#000000</item>
-              </style>
-
-          </resources>
-          EOF
-
-          echo "Checking MainActivity package..."
+          echo "Checking MainActivity..."
           grep -q '^package com\.viyzo\.app;' \
             project/app/src/main/java/com/viyzo/app/MainActivity.java
 
-          echo "MainActivity location:"
-          find project/app/src/main/java -name MainActivity.java -print
+          echo "Checking project structure..."
+          test -f project/settings.gradle
+          test -f project/build.gradle
+          test -f project/app/build.gradle
+          test -f project/app/google-services.json
+          test -f project/app/src/main/AndroidManifest.xml
+          test -f project/app/src/main/java/com/viyzo/app/MainActivity.java
+
+          echo "Final project:"
+          find project -maxdepth 5 -type f | sort
 
       - name: Build APK
         run: |
-          gradle --version
-          gradle -p project clean :app:assembleDebug \
+          cd project
+          gradle clean :app:assembleDebug \
             --no-daemon \
             --stacktrace
 
