@@ -20,20 +20,25 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle 8.7
+      - name: Install Android SDK 35
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Check required files
+      - name: Check source files
         run: |
           test -f MainActivity.java
           test -f google-services.json
 
-      - name: Create clean Viyzo Android project
+      - name: Create Viyzo Android project
         run: |
           rm -rf project
 
@@ -119,7 +124,7 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <style name="AppTheme"
-                     parent="Theme.AppCompat.DayNight.NoActionBar">
+                  parent="Theme.AppCompat.DayNight.NoActionBar">
                   <item name="android:fontFamily">sans</item>
                   <item name="android:statusBarColor">#000000</item>
                   <item name="android:navigationBarColor">#000000</item>
@@ -158,11 +163,8 @@ jobs:
           </manifest>
           EOF
 
-          echo "Checking MainActivity..."
-          grep -q '^package com\.viyzo\.app;' \
-            project/app/src/main/java/com/viyzo/app/MainActivity.java
-
-          echo "Checking project structure..."
+      - name: Verify project
+        run: |
           test -f project/settings.gradle
           test -f project/build.gradle
           test -f project/app/build.gradle
@@ -170,17 +172,19 @@ jobs:
           test -f project/app/src/main/AndroidManifest.xml
           test -f project/app/src/main/java/com/viyzo/app/MainActivity.java
 
-          echo "Final project:"
-          find project -maxdepth 5 -type f | sort
+          grep -q '^package com\.viyzo\.app;' \
+            project/app/src/main/java/com/viyzo/app/MainActivity.java
 
-      - name: Build APK
+          echo "Viyzo project verified successfully."
+
+      - name: Build Viyzo APK
         run: |
           cd project
           gradle clean :app:assembleDebug \
             --no-daemon \
             --stacktrace
 
-      - name: Upload APK
+      - name: Upload Viyzo APK
         uses: actions/upload-artifact@v4
         with:
           name: Viyzo-APK
