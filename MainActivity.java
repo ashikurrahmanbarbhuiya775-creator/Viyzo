@@ -960,7 +960,13 @@ public class MainActivity extends AppCompatActivity {
         b.setText(text);
         b.setTextSize(15);
         b.setAllCaps(false);
+        b.setEnabled(true);
+        b.setClickable(true);
+        b.setFocusable(true);
+        b.setFocusableInTouchMode(false);
+        b.setSoundEffectsEnabled(true);
         b.setPadding(10, 10, 10, 10);
+
         LinearLayout.LayoutParams p =
                 new LinearLayout.LayoutParams(-1, -2);
         p.setMargins(0, 8, 0, 8);
