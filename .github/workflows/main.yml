@@ -1,10 +1,7 @@
-name: Build Viyzo APK
+name: Viyzo FINAL APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
   build:
@@ -23,22 +20,23 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 35
+      - name: Install Android SDK
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Check source files
+      - name: Check required files
         run: |
           test -f MainActivity.java
           test -f google-services.json
+          echo "Required files found."
 
-      - name: Create Viyzo Android project
+      - name: Create clean Android project
         run: |
           rm -rf project
 
@@ -75,7 +73,7 @@ jobs:
           cat > project/build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.6.1' apply false
-              id 'com.google.gms.google-services' version '4.4.2' apply false
+              id 'com.google.gms.google-services' version '4.5.0' apply false
           }
           EOF
 
@@ -114,7 +112,7 @@ jobs:
               implementation 'androidx.appcompat:appcompat:1.7.0'
               implementation 'androidx.core:core:1.15.0'
 
-              implementation platform('com.google.firebase:firebase-bom:33.7.0')
+              implementation platform('com.google.firebase:firebase-bom:34.18.0')
               implementation 'com.google.firebase:firebase-auth'
               implementation 'com.google.firebase:firebase-firestore'
           }
@@ -126,8 +124,8 @@ jobs:
               <style name="AppTheme"
                   parent="Theme.AppCompat.DayNight.NoActionBar">
                   <item name="android:fontFamily">sans</item>
-                  <item name="android:statusBarColor">#000000</item>
-                  <item name="android:navigationBarColor">#000000</item>
+                  <item name="android:statusBarColor">#141418</item>
+                  <item name="android:navigationBarColor">#141418</item>
                   <item name="android:windowLightStatusBar">false</item>
                   <item name="android:windowLightNavigationBar">false</item>
               </style>
@@ -163,7 +161,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: Verify project
+      - name: Verify Viyzo project
         run: |
           test -f project/settings.gradle
           test -f project/build.gradle
@@ -175,7 +173,7 @@ jobs:
           grep -q '^package com\.viyzo\.app;' \
             project/app/src/main/java/com/viyzo/app/MainActivity.java
 
-          echo "Viyzo project verified successfully."
+          echo "Viyzo project verification successful."
 
       - name: Build Viyzo APK
         run: |
