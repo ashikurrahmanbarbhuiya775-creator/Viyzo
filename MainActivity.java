@@ -59,7 +59,7 @@ public class MainActivity extends AppCompatActivity {
                     if (videoView != null) {
                         videoView.setVideoURI(uri);
                         videoView.setMediaController(new MediaController(this));
-                        videoView.start();
+                        videoView.requestFocus();
                     }
                     saveVideoMetadata();
                     toast("Video selected");
@@ -208,6 +208,13 @@ public class MainActivity extends AppCompatActivity {
 
         videoView = new VideoView(this);
         videoView.setBackgroundColor(Color.BLACK);
+        videoView.setZOrderOnTop(true);
+        videoView.setZOrderMediaOverlay(true);
+        videoView.setOnPreparedListener(mp -> {
+            mp.setLooping(true);
+            videoView.requestFocus();
+            videoView.start();
+        });
         LinearLayout.LayoutParams vp =
                 new LinearLayout.LayoutParams(-1, 520);
         vp.setMargins(0, 15, 0, 15);
@@ -960,13 +967,7 @@ public class MainActivity extends AppCompatActivity {
         b.setText(text);
         b.setTextSize(15);
         b.setAllCaps(false);
-        b.setEnabled(true);
-        b.setClickable(true);
-        b.setFocusable(true);
-        b.setFocusableInTouchMode(false);
-        b.setSoundEffectsEnabled(true);
         b.setPadding(10, 10, 10, 10);
-
         LinearLayout.LayoutParams p =
                 new LinearLayout.LayoutParams(-1, -2);
         p.setMargins(0, 8, 0, 8);
