@@ -11,15 +11,14 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
-import android.view.Surface;
-import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.media.MediaPlayer;
+import android.widget.VideoView;
+import android.widget.MediaController;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -49,8 +48,7 @@ public class MainActivity extends AppCompatActivity {
     private FirebaseAuth auth;
     private FirebaseFirestore db;
     private LinearLayout root;
-    private TextureView videoView;
-    private MediaPlayer mediaPlayer;
+    private VideoView videoView;
     private Uri selectedVideo;
     private String currentUid;
 
@@ -59,7 +57,10 @@ public class MainActivity extends AppCompatActivity {
                 if (uri != null) {
                     selectedVideo = uri;
                     if (videoView != null) {
-                        playSelectedVideo(uri);
+                        videoView.setVideoURI(uri);
+                        videoView.setMediaController(new MediaController(this));
+                        videoView.requestFocus();
+                        videoView.start();
                     }
                     saveVideoMetadata();
                     toast("Video selected");
@@ -131,7 +132,12 @@ public class MainActivity extends AppCompatActivity {
                     .addOnSuccessListener(result -> {
                         currentUid = result.getUser().getUid();
                         requestNotificationPermission();
-                        showHome();
+                        try {
+                            showHome();
+                        } catch (RuntimeException ex) {
+                            toast("Home screen error: " + ex.getMessage());
+                            showLogin();
+                        }
                     })
                     .addOnFailureListener(err ->
                             toast("Login failed: " + err.getMessage()));
@@ -206,22 +212,17 @@ public class MainActivity extends AppCompatActivity {
         addTitle("VIYZO");
         addLabel("Welcome to VIYZO");
 
-        videoView = new TextureView(this);
+        videoView = new VideoView(this);
         videoView.setBackgroundColor(Color.BLACK);
-        videoView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
-            @Override public void onSurfaceTextureAvailable(android.graphics.SurfaceTexture surface, int width, int height) {
-                if (selectedVideo != null) playSelectedVideo(selectedVideo);
-            }
-            @Override public void onSurfaceTextureSizeChanged(android.graphics.SurfaceTexture surface, int width, int height) {}
-            @Override public boolean onSurfaceTextureDestroyed(android.graphics.SurfaceTexture surface) {
-                if (mediaPlayer != null) {
-                    mediaPlayer.setSurface(null);
-                }
-                return true;
-            }
-            @Override public void onSurfaceTextureUpdated(android.graphics.SurfaceTexture surface) {}
+        videoView.setZOrderOnTop(true);
+        videoView.setZOrderMediaOverlay(true);
+        videoView.setOnPreparedListener(mp -> {
+            mp.setLooping(true);
+            videoView.requestFocus();
+            videoView.start();
         });
-        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(-1, 520);
+        LinearLayout.LayoutParams vp =
+                new LinearLayout.LayoutParams(-1, 520);
         vp.setMargins(0, 15, 0, 15);
         root.addView(videoView, vp);
 
@@ -248,7 +249,7 @@ public class MainActivity extends AppCompatActivity {
         Button delete = button("DELETE SELECTED VIDEO");
         delete.setOnClickListener(v -> {
             selectedVideo = null;
-            stopVideo();
+            if (videoView != null) videoView.stopPlayback();
             toast("Selected video removed from this screen");
         });
         root.addView(delete);
@@ -261,9 +262,9 @@ public class MainActivity extends AppCompatActivity {
         search.setOnClickListener(v -> searchUsers());
         root.addView(search);
 
-        Button follows = button("FOLLOWERS / FOLLOWING");
-        follows.setOnClickListener(v -> showFollowLists());
-        root.addView(follows);
+        Button follow = button("FOLLOWERS / FOLLOWING");
+        follow.setOnClickListener(v -> showFollowLists());
+        root.addView(follow);
 
         Button messages = button("MESSAGES");
         messages.setOnClickListener(v -> searchUsersForMessage());
@@ -283,7 +284,6 @@ public class MainActivity extends AppCompatActivity {
 
         Button logout = button("LOGOUT");
         logout.setOnClickListener(v -> {
-            stopVideo();
             auth.signOut();
             currentUid = null;
             selectedVideo = null;
