@@ -11,16 +11,15 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
-import android.view.View;
 import android.view.Surface;
 import android.view.TextureView;
-import android.graphics.SurfaceTexture;
-import android.media.MediaPlayer;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.media.MediaPlayer;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -60,9 +59,7 @@ public class MainActivity extends AppCompatActivity {
                 if (uri != null) {
                     selectedVideo = uri;
                     saveVideoMetadata();
-                    if (videoView != null && videoView.isAvailable()) {
-                        playSelectedVideo();
-                    }
+                    ensureVideoViewAndPlay();
                     toast("Video selected");
                 }
             });
@@ -81,7 +78,6 @@ public class MainActivity extends AppCompatActivity {
 
         if (auth.getCurrentUser() != null) {
             currentUid = auth.getCurrentUser().getUid();
-            requestNotificationPermission();
             showHome();
         } else {
             showLogin();
@@ -131,7 +127,6 @@ public class MainActivity extends AppCompatActivity {
             auth.signInWithEmailAndPassword(e, p)
                     .addOnSuccessListener(result -> {
                         currentUid = result.getUser().getUid();
-                        requestNotificationPermission();
                         showHome();
                     })
                     .addOnFailureListener(err ->
@@ -207,39 +202,24 @@ public class MainActivity extends AppCompatActivity {
         addTitle("VIYZO");
         addLabel("Welcome to VIYZO");
 
-        videoView = new TextureView(this);
-        videoView.setBackgroundColor(Color.BLACK);
-        videoView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
-            @Override
-            public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-                if (selectedVideo != null) {
-                    playSelectedVideo();
-                }
-            }
+        // Keep login/home stable: create the video surface only after a video is selected.
+        videoView = null;
+        addLabel("Video preview will appear here after you select a video.");
 
-            @Override
-            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
-            }
-
-            @Override
-            public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
-                releaseVideoPlayer();
-                return true;
-            }
-
-            @Override
-            public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-            }
-        });
-
-        LinearLayout.LayoutParams vp =
-                new LinearLayout.LayoutParams(-1, 520);
-        vp.setMargins(0, 15, 0, 15);
-        root.addView(videoView, vp);
-
-        Button select = button("SELECT VIDEO");
+        Button select = button("SELECT / UPLOAD VIDEO");
         select.setOnClickListener(v -> videoPicker.launch("video/*"));
         root.addView(select);
+
+        Button openVideo = button("OPEN VIDEO SCREEN");
+        openVideo.setOnClickListener(v -> {
+            if (selectedVideo == null) {
+                toast("First select a video");
+                return;
+            }
+            showHome();
+            ensureVideoViewAndPlay();
+        });
+        root.addView(openVideo);
 
         Button like = button("LIKE");
         like.setOnClickListener(v -> saveLike());
@@ -260,8 +240,8 @@ public class MainActivity extends AppCompatActivity {
         Button delete = button("DELETE SELECTED VIDEO");
         delete.setOnClickListener(v -> {
             selectedVideo = null;
-            releaseVideoPlayer();
-            if (videoView != null) videoView.setBackgroundColor(Color.BLACK);
+            stopVideo();
+            showHome();
             toast("Selected video removed from this screen");
         });
         root.addView(delete);
@@ -274,9 +254,9 @@ public class MainActivity extends AppCompatActivity {
         search.setOnClickListener(v -> searchUsers());
         root.addView(search);
 
-        Button follow = button("FOLLOWERS / FOLLOWING");
-        follow.setOnClickListener(v -> showFollowLists());
-        root.addView(follow);
+        Button follows = button("FOLLOWERS / FOLLOWING");
+        follows.setOnClickListener(v -> showFollowLists());
+        root.addView(follows);
 
         Button messages = button("MESSAGES");
         messages.setOnClickListener(v -> searchUsersForMessage());
@@ -290,8 +270,13 @@ public class MainActivity extends AppCompatActivity {
         report.setOnClickListener(v -> showReport());
         root.addView(report);
 
+        Button admin = button("ADMIN DASHBOARD");
+        admin.setOnClickListener(v -> showAdminDashboard());
+        root.addView(admin);
+
         Button logout = button("LOGOUT");
         logout.setOnClickListener(v -> {
+            stopVideo();
             auth.signOut();
             currentUid = null;
             selectedVideo = null;
@@ -302,57 +287,63 @@ public class MainActivity extends AppCompatActivity {
         setContentView(wrap());
     }
 
-    private void playSelectedVideo() {
-        if (selectedVideo == null || videoView == null || !videoView.isAvailable()) {
+    private void ensureVideoViewAndPlay() {
+        if (selectedVideo == null || root == null) return;
+        if (videoView != null) {
+            if (videoView.isAvailable()) playSelectedVideo(selectedVideo);
             return;
         }
 
-        releaseVideoPlayer();
+        videoView = new TextureView(this);
+        videoView.setBackgroundColor(Color.BLACK);
+        videoView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+            @Override public void onSurfaceTextureAvailable(android.graphics.SurfaceTexture surface, int width, int height) {
+                playSelectedVideo(selectedVideo);
+            }
+            @Override public void onSurfaceTextureSizeChanged(android.graphics.SurfaceTexture surface, int width, int height) {}
+            @Override public boolean onSurfaceTextureDestroyed(android.graphics.SurfaceTexture surface) {
+                stopVideo();
+                return true;
+            }
+            @Override public void onSurfaceTextureUpdated(android.graphics.SurfaceTexture surface) {}
+        });
 
+        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(-1, 520);
+        vp.setMargins(0, 15, 0, 15);
+        // Insert video preview just below the welcome label.
+        root.addView(videoView, 2, vp);
+    }
+
+    private void playSelectedVideo(Uri uri) {
+        if (uri == null || videoView == null || !videoView.isAvailable()) return;
         try {
+            stopVideo();
             mediaPlayer = new MediaPlayer();
-            mediaPlayer.setDataSource(this, selectedVideo);
+            mediaPlayer.setDataSource(this, uri);
+            Surface surface = new Surface(videoView.getSurfaceTexture());
+            mediaPlayer.setSurface(surface);
             mediaPlayer.setOnPreparedListener(mp -> {
-                if (videoView != null && videoView.isAvailable()) {
-                    mp.setSurface(new Surface(videoView.getSurfaceTexture()));
-                    mp.setLooping(true);
-                    mp.start();
-                }
+                mp.setLooping(true);
+                mp.start();
             });
             mediaPlayer.setOnErrorListener((mp, what, extra) -> {
-                toast("Video playback failed");
-                releaseVideoPlayer();
+                toast("Video playback failed: " + what + "/" + extra);
                 return true;
             });
             mediaPlayer.prepareAsync();
         } catch (Exception e) {
             toast("Video failed: " + e.getMessage());
-            releaseVideoPlayer();
         }
     }
 
-    private void releaseVideoPlayer() {
+    private void stopVideo() {
         if (mediaPlayer != null) {
-            try {
-                mediaPlayer.stop();
-            } catch (Exception ignored) {
-            }
-            try {
-                mediaPlayer.reset();
-            } catch (Exception ignored) {
-            }
-            try {
-                mediaPlayer.release();
-            } catch (Exception ignored) {
-            }
+            try { mediaPlayer.setSurface(null); } catch (Exception ignored) {}
+            try { mediaPlayer.stop(); } catch (Exception ignored) {}
+            try { mediaPlayer.reset(); } catch (Exception ignored) {}
+            try { mediaPlayer.release(); } catch (Exception ignored) {}
             mediaPlayer = null;
         }
-    }
-
-    @Override
-    protected void onStop() {
-        releaseVideoPlayer();
-        super.onStop();
     }
 
     private void saveVideoMetadata() {
