@@ -13,6 +13,8 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.TextureView;
+import android.view.Surface;
+import android.graphics.SurfaceTexture;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -54,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout root;
     private TextureView videoView;
     private ExoPlayer player;
+    private Surface videoSurface;
     private Uri selectedVideo;
     private String currentUid;
 
@@ -213,15 +216,31 @@ public class MainActivity extends AppCompatActivity {
 
         videoView = new TextureView(this);
         videoView.setBackgroundColor(Color.BLACK);
-        videoView.setOpaque(true);
+        videoView.setOpaque(false);
+        videoView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+            @Override
+            public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+                if (selectedVideo != null) {
+                    playSelectedVideo(selectedVideo);
+                }
+            }
+
+            @Override
+            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {}
+
+            @Override
+            public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+                stopVideo();
+                return true;
+            }
+
+            @Override
+            public void onSurfaceTextureUpdated(SurfaceTexture surface) {}
+        });
         LinearLayout.LayoutParams vp =
                 new LinearLayout.LayoutParams(-1, 520);
         vp.setMargins(0, 15, 0, 15);
         root.addView(videoView, vp);
-
-        if (selectedVideo != null) {
-            playSelectedVideo(selectedVideo);
-        }
 
         Button select = button("SELECT VIDEO");
         select.setOnClickListener(v -> videoPicker.launch(new String[]{"video/*"}));
@@ -289,13 +308,17 @@ public class MainActivity extends AppCompatActivity {
 
     private void playSelectedVideo(Uri uri) {
         if (uri == null || videoView == null) return;
+        if (!videoView.isAvailable()) return;
 
         stopVideo();
 
         try {
-            player = new ExoPlayer.Builder(this).build();
-            player.setVideoTextureView(videoView);
+            SurfaceTexture surfaceTexture = videoView.getSurfaceTexture();
+            if (surfaceTexture == null) return;
 
+            videoSurface = new Surface(surfaceTexture);
+            player = new ExoPlayer.Builder(this).build();
+            player.setVideoSurface(videoSurface);
             player.setMediaItem(MediaItem.fromUri(uri));
             player.setRepeatMode(Player.REPEAT_MODE_ONE);
             player.setPlayWhenReady(true);
@@ -314,12 +337,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void stopVideo() {
-        if (player != null && videoView != null) {
-            try {
-                player.clearVideoTextureView(videoView);
-            } catch (Exception ignored) {}
-        }
         if (player != null) {
+            try {
+                player.clearVideoSurface();
+            } catch (Exception ignored) {}
             try {
                 player.stop();
             } catch (Exception ignored) {}
@@ -327,6 +348,10 @@ public class MainActivity extends AppCompatActivity {
                 player.release();
             } catch (Exception ignored) {}
             player = null;
+        }
+        if (videoSurface != null) {
+            try { videoSurface.release(); } catch (Exception ignored) {}
+            videoSurface = null;
         }
     }
 
