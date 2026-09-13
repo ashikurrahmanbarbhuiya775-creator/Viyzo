@@ -12,9 +12,10 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
-import android.view.TextureView;
 import android.view.Surface;
+import android.view.TextureView;
 import android.graphics.SurfaceTexture;
+import android.media.MediaPlayer;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -27,11 +28,6 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
-
-import androidx.media3.common.MediaItem;
-import androidx.media3.common.PlaybackException;
-import androidx.media3.common.Player;
-import androidx.media3.exoplayer.ExoPlayer;
 
 import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
@@ -55,21 +51,18 @@ public class MainActivity extends AppCompatActivity {
     private FirebaseFirestore db;
     private LinearLayout root;
     private TextureView videoView;
-    private ExoPlayer player;
-    private Surface videoSurface;
+    private MediaPlayer mediaPlayer;
     private Uri selectedVideo;
     private String currentUid;
 
-    private final ActivityResultLauncher<String[]> videoPicker =
-            registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
+    private final ActivityResultLauncher<String> videoPicker =
+            registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
                 if (uri != null) {
-                    try {
-                        final int takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION;
-                        getContentResolver().takePersistableUriPermission(uri, takeFlags);
-                    } catch (Exception ignored) {}
                     selectedVideo = uri;
-                    playSelectedVideo(uri);
                     saveVideoMetadata();
+                    if (videoView != null && videoView.isAvailable()) {
+                        playSelectedVideo();
+                    }
                     toast("Video selected");
                 }
             });
@@ -216,34 +209,36 @@ public class MainActivity extends AppCompatActivity {
 
         videoView = new TextureView(this);
         videoView.setBackgroundColor(Color.BLACK);
-        videoView.setOpaque(false);
         videoView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
             public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
                 if (selectedVideo != null) {
-                    playSelectedVideo(selectedVideo);
+                    playSelectedVideo();
                 }
             }
 
             @Override
-            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {}
+            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+            }
 
             @Override
             public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
-                stopVideo();
+                releaseVideoPlayer();
                 return true;
             }
 
             @Override
-            public void onSurfaceTextureUpdated(SurfaceTexture surface) {}
+            public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+            }
         });
+
         LinearLayout.LayoutParams vp =
                 new LinearLayout.LayoutParams(-1, 520);
         vp.setMargins(0, 15, 0, 15);
         root.addView(videoView, vp);
 
         Button select = button("SELECT VIDEO");
-        select.setOnClickListener(v -> videoPicker.launch(new String[]{"video/*"}));
+        select.setOnClickListener(v -> videoPicker.launch("video/*"));
         root.addView(select);
 
         Button like = button("LIKE");
@@ -265,7 +260,8 @@ public class MainActivity extends AppCompatActivity {
         Button delete = button("DELETE SELECTED VIDEO");
         delete.setOnClickListener(v -> {
             selectedVideo = null;
-            stopVideo();
+            releaseVideoPlayer();
+            if (videoView != null) videoView.setBackgroundColor(Color.BLACK);
             toast("Selected video removed from this screen");
         });
         root.addView(delete);
@@ -306,67 +302,57 @@ public class MainActivity extends AppCompatActivity {
         setContentView(wrap());
     }
 
-    private void playSelectedVideo(Uri uri) {
-        if (uri == null || videoView == null) return;
-        if (!videoView.isAvailable()) return;
+    private void playSelectedVideo() {
+        if (selectedVideo == null || videoView == null || !videoView.isAvailable()) {
+            return;
+        }
 
-        stopVideo();
+        releaseVideoPlayer();
 
         try {
-            SurfaceTexture surfaceTexture = videoView.getSurfaceTexture();
-            if (surfaceTexture == null) return;
-
-            videoSurface = new Surface(surfaceTexture);
-            player = new ExoPlayer.Builder(this).build();
-            player.setVideoSurface(videoSurface);
-            player.setMediaItem(MediaItem.fromUri(uri));
-            player.setRepeatMode(Player.REPEAT_MODE_ONE);
-            player.setPlayWhenReady(true);
-
-            player.addListener(new Player.Listener() {
-                @Override
-                public void onPlayerError(PlaybackException error) {
-                    toast("Video playback failed: " + error.getErrorCodeName());
+            mediaPlayer = new MediaPlayer();
+            mediaPlayer.setDataSource(this, selectedVideo);
+            mediaPlayer.setOnPreparedListener(mp -> {
+                if (videoView != null && videoView.isAvailable()) {
+                    mp.setSurface(new Surface(videoView.getSurfaceTexture()));
+                    mp.setLooping(true);
+                    mp.start();
                 }
             });
-
-            player.prepare();
+            mediaPlayer.setOnErrorListener((mp, what, extra) -> {
+                toast("Video playback failed");
+                releaseVideoPlayer();
+                return true;
+            });
+            mediaPlayer.prepareAsync();
         } catch (Exception e) {
             toast("Video failed: " + e.getMessage());
+            releaseVideoPlayer();
         }
     }
 
-    private void stopVideo() {
-        if (player != null) {
+    private void releaseVideoPlayer() {
+        if (mediaPlayer != null) {
             try {
-                player.clearVideoSurface();
-            } catch (Exception ignored) {}
+                mediaPlayer.stop();
+            } catch (Exception ignored) {
+            }
             try {
-                player.stop();
-            } catch (Exception ignored) {}
+                mediaPlayer.reset();
+            } catch (Exception ignored) {
+            }
             try {
-                player.release();
-            } catch (Exception ignored) {}
-            player = null;
-        }
-        if (videoSurface != null) {
-            try { videoSurface.release(); } catch (Exception ignored) {}
-            videoSurface = null;
-        }
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        if (selectedVideo != null && videoView != null && player == null) {
-            playSelectedVideo(selectedVideo);
+                mediaPlayer.release();
+            } catch (Exception ignored) {
+            }
+            mediaPlayer = null;
         }
     }
 
     @Override
     protected void onStop() {
+        releaseVideoPlayer();
         super.onStop();
-        stopVideo();
     }
 
     private void saveVideoMetadata() {
