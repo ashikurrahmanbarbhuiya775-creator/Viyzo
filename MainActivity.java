@@ -6,23 +6,27 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.ViewGroup;
+import android.content.Intent;
+import android.net.Uri;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.VideoView;
 
 import com.google.firebase.auth.FirebaseAuth;
 
 public class MainActivity extends Activity {
     private FirebaseAuth auth;
     private LinearLayout root;
+    private VideoView videoView;
+    private Uri selectedVideoUri;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         auth = FirebaseAuth.getInstance();
-
         if (auth.getCurrentUser() != null) showHome();
         else showLogin();
     }
@@ -45,8 +49,7 @@ public class MainActivity extends Activity {
         title.setGravity(Gravity.CENTER);
         title.setPadding(0, 0, 0, 40);
         root.addView(title, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     private EditText input(String hint) {
@@ -57,27 +60,23 @@ public class MainActivity extends Activity {
         edit.setTextSize(17);
         edit.setSingleLine(true);
         edit.setPadding(20, 15, 20, 15);
-
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 8, 0, 8);
         root.addView(edit, params);
         return edit;
     }
 
     private Button button(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setTextSize(16);
-        button.setAllCaps(false);
-
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextSize(16);
+        b.setAllCaps(false);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 12, 0, 4);
-        root.addView(button, params);
-        return button;
+        root.addView(b, params);
+        return b;
     }
 
     private void showLogin() {
@@ -99,12 +98,10 @@ public class MainActivity extends Activity {
         login.setOnClickListener(v -> {
             String e = email.getText().toString().trim();
             String p = password.getText().toString();
-
             if (e.isEmpty() || p.isEmpty()) {
                 toast("Email and password required");
                 return;
             }
-
             login.setEnabled(false);
             auth.signInWithEmailAndPassword(e, p)
                     .addOnSuccessListener(result -> showHome())
@@ -116,7 +113,6 @@ public class MainActivity extends Activity {
 
         Button signup = button("CREATE NEW ACCOUNT");
         signup.setOnClickListener(v -> showSignup());
-
         setContentView(root);
     }
 
@@ -134,19 +130,9 @@ public class MainActivity extends Activity {
             String n = name.getText().toString().trim();
             String e = email.getText().toString().trim();
             String p = password.getText().toString();
-
-            if (n.isEmpty()) {
-                toast("Enter your name");
-                return;
-            }
-            if (e.isEmpty()) {
-                toast("Enter your email");
-                return;
-            }
-            if (p.length() < 6) {
-                toast("Password must be at least 6 characters");
-                return;
-            }
+            if (n.isEmpty()) { toast("Enter your name"); return; }
+            if (e.isEmpty()) { toast("Enter your email"); return; }
+            if (p.length() < 6) { toast("Password must be at least 6 characters"); return; }
 
             create.setEnabled(false);
             auth.createUserWithEmailAndPassword(e, p)
@@ -162,7 +148,6 @@ public class MainActivity extends Activity {
 
         Button back = button("BACK TO LOGIN");
         back.setOnClickListener(v -> showLogin());
-
         setContentView(root);
     }
 
@@ -171,23 +156,99 @@ public class MainActivity extends Activity {
         addTitle("VIYZO");
 
         TextView message = new TextView(this);
-        message.setText("Login successful\n\nViyzo is ready.\n\nNext features will be added one at a time.");
+        message.setText("Login successful\n\nSelect a video below to test upload and view.");
         message.setTextColor(Color.WHITE);
         message.setTextSize(18);
         message.setGravity(Gravity.CENTER);
-        message.setPadding(0, 20, 0, 30);
-
+        message.setPadding(0, 20, 0, 20);
         root.addView(message, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        Button upload = button("UPLOAD / SELECT VIDEO");
+        upload.setOnClickListener(v -> selectVideo());
+
+        Button view = button("VIEW VIDEO");
+        view.setOnClickListener(v -> {
+            if (selectedVideoUri == null) {
+                toast("Please select a video first");
+                return;
+            }
+            showVideo();
+        });
 
         Button logout = button("LOGOUT");
         logout.setOnClickListener(v -> {
             auth.signOut();
+            if (videoView != null) videoView.stopPlayback();
             showLogin();
         });
 
         setContentView(root);
+    }
+
+    private void selectVideo() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("video/*");
+        startActivityForResult(intent, 1001);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 1001 && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            selectedVideoUri = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(
+                        selectedVideoUri,
+                        data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {}
+            toast("Video selected successfully");
+            showHome();
+        }
+    }
+
+    private void showVideo() {
+        root = baseRoot();
+        addTitle("VIDEO VIEW");
+
+        videoView = new VideoView(this);
+        videoView.setBackgroundColor(Color.BLACK);
+        videoView.setVideoURI(selectedVideoUri);
+        videoView.setOnPreparedListener(mp -> {
+            mp.setLooping(true);
+            videoView.requestFocus();
+            videoView.start();
+        });
+        videoView.setOnErrorListener((mp, what, extra) -> {
+            toast("Video could not be played");
+            return true;
+        });
+
+        LinearLayout.LayoutParams videoParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        videoParams.setMargins(0, 10, 0, 10);
+        root.addView(videoView, videoParams);
+
+        Button back = button("BACK");
+        back.setOnClickListener(v -> {
+            if (videoView != null) videoView.stopPlayback();
+            showHome();
+        });
+
+        setContentView(root);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (videoView != null && videoView.isPlaying()) videoView.pause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (videoView != null) videoView.stopPlayback();
+        super.onDestroy();
     }
 
     private void toast(String message) {
