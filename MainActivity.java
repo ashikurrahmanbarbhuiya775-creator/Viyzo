@@ -7,60 +7,75 @@ import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.media.MediaPlayer;
+import android.widget.VideoView;
+import android.widget.MediaController;
 
 public class MainActivity extends Activity {
 
-    private static final int PICK_VIDEO = 100;
+    private static final int PICK_VIDEO = 101;
 
-    private LinearLayout mainLayout;
-    private SurfaceView videoView;
-    private MediaPlayer player;
-    private Uri videoUri;
+    private VideoView videoView;
+    private Uri selectedVideo;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         showHome();
     }
 
     private void showHome() {
 
-        releasePlayer();
-
-        mainLayout = new LinearLayout(this);
-        mainLayout.setOrientation(LinearLayout.VERTICAL);
-        mainLayout.setBackgroundColor(Color.BLACK);
-        mainLayout.setPadding(12, 12, 12, 12);
+        LinearLayout main = new LinearLayout(this);
+        main.setOrientation(LinearLayout.VERTICAL);
+        main.setBackgroundColor(Color.BLACK);
+        main.setPadding(12, 12, 12, 12);
 
         TextView title = new TextView(this);
         title.setText("VIYZO");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(28);
+        title.setTextSize(30);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 10, 0, 10);
+        title.setPadding(0, 10, 0, 15);
 
-        mainLayout.addView(title,
+        main.addView(title,
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
                 ));
 
-        videoView = new SurfaceView(this);
+        TextView homeText = new TextView(this);
+        homeText.setText("HOME");
+        homeText.setTextColor(Color.WHITE);
+        homeText.setTextSize(20);
+        homeText.setGravity(Gravity.CENTER);
+        homeText.setPadding(0, 5, 0, 10);
+
+        main.addView(homeText,
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                ));
+
+        videoView = new VideoView(this);
         videoView.setBackgroundColor(Color.BLACK);
 
-        mainLayout.addView(videoView,
+        LinearLayout.LayoutParams videoParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         0,
                         1
-                ));
+                );
+
+        main.addView(videoView, videoParams);
+
+        MediaController controller = new MediaController(this);
+        controller.setAnchorView(videoView);
+        videoView.setMediaController(controller);
 
         Button uploadButton = new Button(this);
         uploadButton.setText("UPLOAD VIDEO");
@@ -68,38 +83,17 @@ public class MainActivity extends Activity {
 
         uploadButton.setOnClickListener(v -> openVideoPicker());
 
-        mainLayout.addView(uploadButton,
+        main.addView(uploadButton,
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
                 ));
 
-        setContentView(mainLayout);
+        setContentView(main);
 
-        videoView.getHolder().addCallback(new SurfaceHolder.Callback() {
-
-            @Override
-            public void surfaceCreated(SurfaceHolder holder) {
-
-                if (videoUri != null) {
-                    playVideo(holder);
-                }
-            }
-
-            @Override
-            public void surfaceChanged(
-                    SurfaceHolder holder,
-                    int format,
-                    int width,
-                    int height) {
-            }
-
-            @Override
-            public void surfaceDestroyed(SurfaceHolder holder) {
-
-                releasePlayer();
-            }
-        });
+        if (selectedVideo != null) {
+            playSelectedVideo();
+        }
     }
 
     private void openVideoPicker() {
@@ -126,11 +120,11 @@ public class MainActivity extends Activity {
                 data != null &&
                 data.getData() != null) {
 
-            videoUri = data.getData();
+            selectedVideo = data.getData();
 
             try {
                 getContentResolver().takePersistableUriPermission(
-                        videoUri,
+                        selectedVideo,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
                 );
             } catch (Exception ignored) {
@@ -140,80 +134,57 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void playVideo(SurfaceHolder holder) {
+    private void playSelectedVideo() {
 
-        if (videoUri == null) {
+        if (selectedVideo == null || videoView == null) {
             return;
         }
 
-        releasePlayer();
+        videoView.setVideoURI(selectedVideo);
 
-        try {
+        videoView.setOnPreparedListener(mp -> {
 
-            player = new MediaPlayer();
+            mp.setLooping(true);
 
-            player.setDataSource(
-                    this,
-                    videoUri
-            );
+            videoView.start();
+        });
 
-            // वीडियो की तस्वीर SurfaceView पर दिखेगी
-            player.setDisplay(holder);
+        videoView.setOnErrorListener((mp, what, extra) -> {
 
-            player.setAudioStreamType(
-                    android.media.AudioManager.STREAM_MUSIC
-            );
+            return false;
+        });
 
-            player.setVolume(1.0f, 1.0f);
+        videoView.requestFocus();
+    }
 
-            player.setLooping(true);
+    @Override
+    protected void onPause() {
 
-            player.setVideoScalingMode(
-                    MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT
-            );
+        super.onPause();
 
-            player.setOnPreparedListener(mp -> {
-                mp.start();
-            });
-
-            player.setOnErrorListener((mp, what, extra) -> {
-                return false;
-            });
-
-            player.prepareAsync();
-
-        } catch (Exception e) {
-            e.printStackTrace();
+        if (videoView != null && videoView.isPlaying()) {
+            videoView.pause();
         }
     }
 
-    private void releasePlayer() {
+    @Override
+    protected void onResume() {
 
-        if (player != null) {
+        super.onResume();
 
-            try {
-                player.stop();
-            } catch (Exception ignored) {
-            }
+        if (videoView != null &&
+                selectedVideo != null) {
 
-            try {
-                player.reset();
-            } catch (Exception ignored) {
-            }
-
-            try {
-                player.release();
-            } catch (Exception ignored) {
-            }
-
-            player = null;
+            videoView.start();
         }
     }
 
     @Override
     protected void onDestroy() {
 
-        releasePlayer();
+        if (videoView != null) {
+            videoView.stopPlayback();
+        }
 
         super.onDestroy();
     }
