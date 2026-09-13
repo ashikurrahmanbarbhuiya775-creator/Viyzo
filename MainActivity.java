@@ -486,6 +486,37 @@ public class MainActivity extends AppCompatActivity {
         startActivity(Intent.createChooser(send, "Share video with"));
     }
 
+    private void showAdminDashboard() {
+        if (auth.getCurrentUser() == null) {
+            toast("Please login first");
+            return;
+        }
+
+        root = baseRoot();
+        addTitle("VIYZO ADMIN DASHBOARD");
+        addLabel("Loading dashboard...");
+        setContentView(wrap());
+
+        db.collection("users").get().addOnSuccessListener(users -> {
+            int userCount = users.size();
+            db.collection("videos").get().addOnSuccessListener(videos -> {
+                int videoCount = videos.size();
+                db.collection("reports").get().addOnSuccessListener(reports -> {
+                    root = baseRoot();
+                    addTitle("VIYZO ADMIN DASHBOARD");
+                    addLabel("Users: " + userCount);
+                    addLabel("Videos: " + videoCount);
+                    addLabel("Reports: " + reports.size());
+
+                    Button back = button("BACK TO HOME");
+                    back.setOnClickListener(v -> showHome());
+                    root.addView(back);
+                    setContentView(wrap());
+                }).addOnFailureListener(e -> toast("Reports load failed: " + e.getMessage()));
+            }).addOnFailureListener(e -> toast("Videos load failed: " + e.getMessage()));
+        }).addOnFailureListener(e -> toast("Users load failed: " + e.getMessage()));
+    }
+
     private void showProfile() {
         root = baseRoot();
         addTitle("My Profile");
