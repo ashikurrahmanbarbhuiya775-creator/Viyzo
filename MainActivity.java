@@ -12,6 +12,7 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
+import android.view.TextureView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -29,7 +30,6 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.ui.PlayerView;
 
 import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
@@ -52,14 +52,18 @@ public class MainActivity extends AppCompatActivity {
     private FirebaseAuth auth;
     private FirebaseFirestore db;
     private LinearLayout root;
-    private PlayerView videoView;
+    private TextureView videoView;
     private ExoPlayer player;
     private Uri selectedVideo;
     private String currentUid;
 
     private final ActivityResultLauncher<String> videoPicker =
-            registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+            registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
                 if (uri != null) {
+                    try {
+                        final int takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION;
+                        getContentResolver().takePersistableUriPermission(uri, takeFlags);
+                    } catch (Exception ignored) {}
                     selectedVideo = uri;
                     playSelectedVideo(uri);
                     saveVideoMetadata();
@@ -207,11 +211,9 @@ public class MainActivity extends AppCompatActivity {
         addTitle("VIYZO");
         addLabel("Welcome to VIYZO");
 
-        videoView = new PlayerView(this);
+        videoView = new TextureView(this);
         videoView.setBackgroundColor(Color.BLACK);
-        videoView.setUseController(true);
-        videoView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
-        videoView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        videoView.setOpaque(true);
         LinearLayout.LayoutParams vp =
                 new LinearLayout.LayoutParams(-1, 520);
         vp.setMargins(0, 15, 0, 15);
@@ -222,7 +224,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         Button select = button("SELECT VIDEO");
-        select.setOnClickListener(v -> videoPicker.launch("video/*"));
+        select.setOnClickListener(v -> videoPicker.launch(new String[]{"video/*"}));
         root.addView(select);
 
         Button like = button("LIKE");
@@ -292,7 +294,7 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             player = new ExoPlayer.Builder(this).build();
-            videoView.setPlayer(player);
+            player.setVideoTextureView(videoView);
 
             player.setMediaItem(MediaItem.fromUri(uri));
             player.setRepeatMode(Player.REPEAT_MODE_ONE);
@@ -312,8 +314,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void stopVideo() {
-        if (videoView != null) {
-            videoView.setPlayer(null);
+        if (player != null && videoView != null) {
+            try {
+                player.clearVideoTextureView(videoView);
+            } catch (Exception ignored) {}
         }
         if (player != null) {
             try {
@@ -323,6 +327,14 @@ public class MainActivity extends AppCompatActivity {
                 player.release();
             } catch (Exception ignored) {}
             player = null;
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (selectedVideo != null && videoView != null && player == null) {
+            playSelectedVideo(selectedVideo);
         }
     }
 
