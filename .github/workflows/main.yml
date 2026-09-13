@@ -1,17 +1,15 @@
-name: Build Viyzo APK - CLEAN
+name: Build Viyzo APK
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+  push:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -20,7 +18,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
+      - name: Setup Android
         uses: android-actions/setup-android@v3
 
       - name: Setup Gradle 8.7
@@ -28,24 +26,25 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Check required files
-        run: |
-          test -f MainActivity.java
-          test -f google-services.json
-
-      - name: Create clean Android project
+      - name: Extract Viyzo starter
         run: |
           rm -rf project
+          mkdir -p project
+          unzip -q Viyzo-Android-Starter.zip -d project
 
-          mkdir -p project/app/src/main/java/com/viyzo/app
-          mkdir -p project/app/src/main/res/values
+      - name: Find project
+        run: |
+          PROJECT_DIR=$(find project -name settings.gradle -type f -print -quit | xargs dirname)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Android project not found"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found project: $PROJECT_DIR"
 
-          cat > project/gradle.properties <<'EOF'
-          android.useAndroidX=true
-          android.enableJetifier=true
-          EOF
-
-          cat > project/settings.gradle <<'EOF'
+      - name: Write settings.gradle
+        run: |
+          cat > "$PROJECT_DIR/settings.gradle" <<'EOF'
           pluginManagement {
               repositories {
                   google()
@@ -66,14 +65,18 @@ jobs:
           include(":app")
           EOF
 
-          cat > project/build.gradle <<'EOF'
+      - name: Write root build.gradle
+        run: |
+          cat > "$PROJECT_DIR/build.gradle" <<'EOF'
           plugins {
               id 'com.android.application' version '8.6.1' apply false
               id 'com.google.gms.google-services' version '4.4.2' apply false
           }
           EOF
 
-          cat > project/app/build.gradle <<'EOF'
+      - name: Write app build.gradle
+        run: |
+          cat > "$PROJECT_DIR/app/build.gradle" <<'EOF'
           plugins {
               id 'com.android.application'
               id 'com.google.gms.google-services'
@@ -98,9 +101,10 @@ jobs:
           }
 
           dependencies {
-              implementation 'androidx.activity:activity:1.10.1'
               implementation 'androidx.appcompat:appcompat:1.7.0'
-              implementation 'androidx.core:core:1.15.0'
+
+              implementation 'androidx.media3:media3-exoplayer:1.11.0'
+              implementation 'androidx.media3:media3-ui:1.11.0'
 
               implementation platform('com.google.firebase:firebase-bom:33.7.0')
               implementation 'com.google.firebase:firebase-auth'
@@ -108,7 +112,11 @@ jobs:
           }
           EOF
 
-          cat > project/app/src/main/res/values/styles.xml <<'EOF'
+      - name: Write AppCompat theme
+        run: |
+          mkdir -p "$PROJECT_DIR/app/src/main/res/values"
+
+          cat > "$PROJECT_DIR/app/src/main/res/values/styles.xml" <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
@@ -121,7 +129,9 @@ jobs:
           </resources>
           EOF
 
-          cat > project/app/src/main/AndroidManifest.xml <<'EOF'
+      - name: Write AndroidManifest
+        run: |
+          cat > "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -149,19 +159,35 @@ jobs:
           </manifest>
           EOF
 
-      - name: Copy app source files
+      - name: Copy MainActivity
         run: |
-          cp MainActivity.java project/app/src/main/java/com/viyzo/app/MainActivity.java
-          cp google-services.json project/app/google-services.json
+          TARGET="$PROJECT_DIR/app/src/main/java/com/viyzo/app/MainActivity.java"
 
-      - name: Build debug APK
+          if [ ! -f MainActivity.java ]; then
+            echo "MainActivity.java not found in repository"
+            exit 1
+          fi
+
+          mkdir -p "$(dirname "$TARGET")"
+          cp MainActivity.java "$TARGET"
+
+      - name: Copy Firebase config
         run: |
-          cd project
+          if [ ! -f google-services.json ]; then
+            echo "google-services.json not found"
+            exit 1
+          fi
+
+          cp google-services.json "$PROJECT_DIR/app/google-services.json"
+
+      - name: Build APK
+        run: |
+          cd "$PROJECT_DIR"
           gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Viyzo-APK-CLEAN
-          path: project/app/build/outputs/apk/debug/app-debug.apk
+          name: Viyzo-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
