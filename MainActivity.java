@@ -2,27 +2,22 @@ package com.viyzo.app;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.SurfaceTexture;
 import android.view.Gravity;
 import android.view.Surface;
-import android.view.TextureView;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.view.View;
 import android.view.ViewGroup;
-import android.media.MediaPlayer;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.FrameLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
-import android.widget.Toast;
+import android.widget.*;
 
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.firestore.DocumentSnapshot;
-import com.google.firebase.firestore.FieldValue;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.Query;
 
@@ -34,15 +29,31 @@ public class MainActivity extends Activity {
     private FirebaseAuth auth;
     private FirebaseFirestore db;
 
-    private LinearLayout root;
+    private SurfaceView videoSurface;
+    private SurfaceHolder surfaceHolder;
+    private android.media.MediaPlayer mediaPlayer;
+    private Surface currentSurface;
 
     private Uri selectedVideoUri;
 
-    private MediaPlayer mediaPlayer;
-    private TextureView currentTexture;
-    private TextView videoMessage;
+    private SharedPreferences prefs;
 
-    private static final int PICK_VIDEO = 1001;
+    private static final int PICK_VIDEO = 5001;
+
+    private LinearLayout root;
+    private TextView statusText;
+
+    private String currentVideoId = "";
+
+    private int page = 0;
+    private static final int PAGE_HOME = 1;
+    private static final int PAGE_VIDEO = 2;
+
+    private int WHITE = Color.WHITE;
+    private int BLACK = Color.BLACK;
+    private int DARK = Color.rgb(18, 18, 22);
+    private int CARD = Color.rgb(30, 30, 36);
+    private int GRAY = Color.rgb(180, 180, 185);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,674 +62,631 @@ public class MainActivity extends Activity {
         auth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
-        if (auth.getCurrentUser() != null) {
-            showHome();
-        } else {
+        prefs = getSharedPreferences("viyzo_settings", MODE_PRIVATE);
+
+        String savedVideo = prefs.getString("selected_video", "");
+
+        if (!savedVideo.isEmpty()) {
+            try {
+                selectedVideoUri = Uri.parse(savedVideo);
+            } catch (Exception ignored) {
+            }
+        }
+
+        if (auth.getCurrentUser() == null) {
             showLogin();
+        } else {
+            showHome();
         }
     }
 
-    // =========================
-    // BASIC UI
-    // =========================
-
-    private LinearLayout baseRoot() {
-
-        LinearLayout layout = new LinearLayout(this);
-
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setGravity(Gravity.CENTER_HORIZONTAL);
-
-        layout.setPadding(
-                dp(16),
-                dp(25),
-                dp(16),
-                dp(30)
-        );
-
-        layout.setBackgroundColor(
-                Color.rgb(18, 18, 22)
-        );
-
-        return layout;
-    }
-
-    private int dp(int value) {
-        return (int) (
-                value *
-                getResources()
-                        .getDisplayMetrics()
-                        .density
-                + 0.5f
-        );
-    }
-
-    private void setPage(LinearLayout page) {
-
-        ScrollView scroll = new ScrollView(this);
-
-        scroll.setFillViewport(true);
-
-        scroll.addView(page);
-
-        setContentView(scroll);
-    }
-
-    private void addTitle(String text) {
-
-        TextView title = new TextView(this);
-
-        title.setText(text);
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(29);
-        title.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-        title.setGravity(Gravity.CENTER);
-
-        title.setPadding(
-                0,
-                dp(10),
-                0,
-                dp(20)
-        );
-
-        root.addView(
-                title,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
-        );
-    }
-
-    private EditText input(String hint) {
-
-        EditText edit = new EditText(this);
-
-        edit.setHint(hint);
-        edit.setHintTextColor(Color.LTGRAY);
-        edit.setTextColor(Color.WHITE);
-        edit.setTextSize(16);
-        edit.setSingleLine(true);
-
-        edit.setPadding(
-                dp(10),
-                dp(8),
-                dp(10),
-                dp(8)
-        );
-
-        LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                );
-
-        params.setMargins(
-                0,
-                dp(6),
-                0,
-                dp(6)
-        );
-
-        root.addView(edit, params);
-
-        return edit;
-    }
-
-    private Button button(String text) {
-
-        Button b = new Button(this);
-
-        b.setText(text);
-        b.setTextSize(16);
-        b.setAllCaps(false);
-
-        LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                );
-
-        params.setMargins(
-                0,
-                dp(6),
-                0,
-                dp(4)
-        );
-
-        root.addView(b, params);
-
-        return b;
-    }
+    // =========================================================
+    // BASIC UI HELPERS
+    // =========================================================
 
     private TextView text(String value, float size) {
 
         TextView t = new TextView(this);
 
         t.setText(value);
-        t.setTextColor(Color.WHITE);
+        t.setTextColor(WHITE);
         t.setTextSize(size);
-
-        t.setPadding(
-                dp(8),
-                dp(8),
-                dp(8),
-                dp(8)
-        );
-
-        root.addView(
-                t,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
-        );
+        t.setPadding(16, 12, 16, 12);
 
         return t;
     }
 
-    private void toast(String message) {
+    private Button button(String value) {
 
-        Toast.makeText(
-                this,
-                message,
-                Toast.LENGTH_LONG
-        ).show();
+        Button b = new Button(this);
+
+        b.setText(value);
+        b.setTextSize(15);
+        b.setAllCaps(false);
+
+        return b;
     }
 
-    // =========================
+    private void baseRoot() {
+
+        root = new LinearLayout(this);
+
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(DARK);
+
+        root.setPadding(12, 12, 12, 12);
+
+        ScrollView scroll = new ScrollView(this);
+
+        scroll.setFillViewport(true);
+
+        scroll.addView(root);
+
+        setContentView(scroll);
+    }
+
+    private void title(String value) {
+
+        TextView t = text(value, 28);
+
+        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        t.setGravity(Gravity.CENTER);
+
+        root.addView(
+                t,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+    }
+
+    private void message(String value) {
+
+        TextView t = text(value, 14);
+
+        t.setTextColor(GRAY);
+
+        root.addView(
+                t,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+    }
+
+    // =========================================================
     // LOGIN
-    // =========================
+    // =========================================================
 
     private void showLogin() {
 
         stopVideo();
 
-        root = baseRoot();
+        baseRoot();
 
-        addTitle("VIYZO");
+        title("VIYZO");
 
-        TextView heading =
-                text("LOGIN", 22);
-
+        TextView heading = text("LOGIN", 22);
         heading.setGravity(Gravity.CENTER);
 
-        EditText email =
-                input("Email");
+        root.addView(heading);
 
-        EditText password =
-                input("Password");
+        final EditText email = new EditText(this);
+        email.setHint("Email");
+        email.setTextColor(WHITE);
+        email.setHintTextColor(GRAY);
 
+        root.addView(email);
+
+        final EditText password = new EditText(this);
+        password.setHint("Password");
+        password.setTextColor(WHITE);
+        password.setHintTextColor(GRAY);
         password.setInputType(0x81);
 
-        Button login =
-                button("LOGIN");
+        root.addView(password);
+
+        Button login = button("LOGIN");
+
+        root.addView(login);
+
+        Button signup = button("CREATE NEW ACCOUNT");
+
+        root.addView(signup);
+
+        TextView result = text("", 14);
+        result.setTextColor(GRAY);
+
+        root.addView(result);
 
         login.setOnClickListener(v -> {
 
-            String e =
-                    email.getText()
-                            .toString()
-                            .trim();
-
-            String p =
-                    password.getText()
-                            .toString();
+            String e = email.getText().toString().trim();
+            String p = password.getText().toString();
 
             if (e.isEmpty() || p.isEmpty()) {
-
-                toast(
-                        "Email और password डालें"
-                );
-
+                result.setText("Email और password भरें।");
                 return;
             }
 
-            login.setEnabled(false);
+            result.setText("Login हो रहा है...");
 
-            auth.signInWithEmailAndPassword(
-                    e,
-                    p
-            )
-            .addOnSuccessListener(result -> {
+            auth.signInWithEmailAndPassword(e, p)
+                    .addOnCompleteListener(task -> {
 
-                login.setEnabled(true);
+                        if (task.isSuccessful()) {
 
-                ensureUserProfile();
+                            showHome();
 
-                showHome();
+                        } else {
 
-            })
-            .addOnFailureListener(error -> {
+                            String msg = "Login failed";
 
-                login.setEnabled(true);
+                            if (task.getException() != null) {
+                                msg = task.getException().getMessage();
+                            }
 
-                toast(
-                        "Login failed: "
-                                + error.getMessage()
-                );
-            });
+                            result.setText(msg);
+                        }
+                    });
         });
 
-        Button signup =
-                button("CREATE NEW ACCOUNT");
-
-        signup.setOnClickListener(
-                v -> showSignup()
-        );
-
-        setPage(root);
+        signup.setOnClickListener(v -> showSignup());
     }
 
-    // =========================
+    // =========================================================
     // SIGNUP
-    // =========================
+    // =========================================================
 
     private void showSignup() {
 
         stopVideo();
 
-        root = baseRoot();
+        baseRoot();
 
-        addTitle("CREATE VIYZO ACCOUNT");
+        title("VIYZO");
 
-        EditText name =
-                input("Your name");
+        TextView heading = text("SIGN UP", 22);
+        heading.setGravity(Gravity.CENTER);
 
-        EditText email =
-                input("Email");
+        root.addView(heading);
 
-        EditText password =
-                input("Password");
+        final EditText name = new EditText(this);
+        name.setHint("Your Name");
+        name.setTextColor(WHITE);
+        name.setHintTextColor(GRAY);
 
+        root.addView(name);
+
+        final EditText email = new EditText(this);
+        email.setHint("Email");
+        email.setTextColor(WHITE);
+        email.setHintTextColor(GRAY);
+
+        root.addView(email);
+
+        final EditText password = new EditText(this);
+        password.setHint("Password");
+        password.setTextColor(WHITE);
+        password.setHintTextColor(GRAY);
         password.setInputType(0x81);
 
-        Button create =
-                button("SIGN UP");
+        root.addView(password);
+
+        Button create = button("CREATE ACCOUNT");
+
+        root.addView(create);
+
+        Button back = button("BACK TO LOGIN");
+
+        root.addView(back);
+
+        TextView result = text("", 14);
+
+        result.setTextColor(GRAY);
+
+        root.addView(result);
 
         create.setOnClickListener(v -> {
 
-            String n =
-                    name.getText()
-                            .toString()
-                            .trim();
+            String n = name.getText().toString().trim();
+            String e = email.getText().toString().trim();
+            String p = password.getText().toString();
 
-            String e =
-                    email.getText()
-                            .toString()
-                            .trim();
+            if (n.isEmpty() || e.isEmpty() || p.isEmpty()) {
 
-            String p =
-                    password.getText()
-                            .toString();
-
-            if (n.isEmpty()) {
-
-                toast("Name डालें");
-
-                return;
-            }
-
-            if (e.isEmpty()) {
-
-                toast("Email डालें");
-
+                result.setText("सारी जानकारी भरें।");
                 return;
             }
 
             if (p.length() < 6) {
 
-                toast(
-                        "Password कम से कम 6 characters का रखें"
-                );
-
+                result.setText("Password कम से कम 6 characters का रखें।");
                 return;
             }
 
-            create.setEnabled(false);
+            result.setText("Account बनाया जा रहा है...");
 
-            auth.createUserWithEmailAndPassword(
-                    e,
-                    p
-            )
-            .addOnSuccessListener(result -> {
+            auth.createUserWithEmailAndPassword(e, p)
+                    .addOnCompleteListener(task -> {
 
-                String uid =
-                        auth.getCurrentUser()
-                                .getUid();
+                        if (task.isSuccessful()) {
 
-                Map<String, Object> user =
-                        new HashMap<>();
+                            FirebaseUser user = auth.getCurrentUser();
 
-                user.put(
-                        "uid",
-                        uid
-                );
+                            if (user != null) {
 
-                user.put(
-                        "name",
-                        n
-                );
+                                Map<String, Object> profile = new HashMap<>();
 
-                user.put(
-                        "email",
-                        e
-                );
+                                profile.put("uid", user.getUid());
+                                profile.put("name", n);
+                                profile.put("email", e);
+                                profile.put("followers", 0);
+                                profile.put("following", 0);
+                                profile.put("createdAt",
+                                        System.currentTimeMillis());
 
-                user.put(
-                        "followers",
-                        0L
-                );
+                                db.collection("users")
+                                        .document(user.getUid())
+                                        .set(profile);
+                            }
 
-                user.put(
-                        "following",
-                        0L
-                );
+                            showHome();
 
-                user.put(
-                        "createdAt",
-                        FieldValue.serverTimestamp()
-                );
+                        } else {
 
-                db.collection("users")
-                        .document(uid)
-                        .set(user);
+                            String msg = "Signup failed";
 
-                toast(
-                        "Account created successfully"
-                );
+                            if (task.getException() != null) {
+                                msg = task.getException().getMessage();
+                            }
 
-                showHome();
-
-            })
-            .addOnFailureListener(error -> {
-
-                create.setEnabled(true);
-
-                toast(
-                        "Signup failed: "
-                                + error.getMessage()
-                );
-            });
+                            result.setText(msg);
+                        }
+                    });
         });
 
-        Button back =
-                button("BACK TO LOGIN");
-
-        back.setOnClickListener(
-                v -> showLogin()
-        );
-
-        setPage(root);
+        back.setOnClickListener(v -> showLogin());
     }
 
-    // =========================
+    // =========================================================
     // HOME
-    // =========================
+    // =========================================================
 
     private void showHome() {
 
+        page = PAGE_HOME;
+
         stopVideo();
 
-        root = baseRoot();
+        baseRoot();
 
-        addTitle("VIYZO");
+        title("VIYZO");
 
-        TextView homeTitle =
-                text(
-                        "HOME • VIDEO FEED",
-                        21
-                );
+        TextView home = text("HOME", 21);
+        home.setGravity(Gravity.CENTER);
 
-        homeTitle.setGravity(
-                Gravity.CENTER
-        );
+        root.addView(home);
 
-        // VIDEO AREA
+        // ---------------- VIDEO AREA ----------------
 
-        FrameLayout videoBox =
-                new FrameLayout(this);
+        FrameLayout videoFrame = new FrameLayout(this);
 
-        videoBox.setBackgroundColor(
-                Color.BLACK
-        );
+        videoFrame.setBackgroundColor(Color.BLACK);
 
-        LinearLayout.LayoutParams boxParams =
+        LinearLayout.LayoutParams videoFrameParams =
                 new LinearLayout.LayoutParams(
-                        -1,
-                        dp(320)
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        dp(300)
                 );
 
-        boxParams.setMargins(
-                0,
-                dp(8),
-                0,
-                dp(10)
-        );
+        root.addView(videoFrame, videoFrameParams);
 
-        root.addView(
-                videoBox,
-                boxParams
-        );
+        videoSurface = new SurfaceView(this);
 
-        currentTexture =
-                new TextureView(this);
+        videoSurface.setBackgroundColor(Color.BLACK);
 
-        FrameLayout.LayoutParams textureParams =
+        videoFrame.addView(
+                videoSurface,
                 new FrameLayout.LayoutParams(
-                        -1,
-                        -1
-                );
-
-        textureParams.gravity =
-                Gravity.CENTER;
-
-        videoBox.addView(
-                currentTexture,
-                textureParams
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                )
         );
 
-        videoMessage =
-                new TextView(this);
+        TextView videoHint = text("", 14);
 
-        videoMessage.setText(
-                selectedVideoUri == null
-                        ? "HOME VIDEO\n\nUPLOAD A VIDEO"
-                        : "Loading video..."
-        );
+        videoHint.setGravity(Gravity.CENTER);
+        videoHint.setTextColor(WHITE);
 
-        videoMessage.setTextColor(
-                Color.WHITE
-        );
-
-        videoMessage.setTextSize(17);
-
-        videoMessage.setGravity(
-                Gravity.CENTER
-        );
-
-        FrameLayout.LayoutParams messageParams =
+        videoFrame.addView(
+                videoHint,
                 new FrameLayout.LayoutParams(
-                        -1,
-                        -1
-                );
-
-        messageParams.gravity =
-                Gravity.CENTER;
-
-        videoBox.addView(
-                videoMessage,
-                messageParams
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                )
         );
 
-        if (selectedVideoUri != null) {
+        surfaceHolder = videoSurface.getHolder();
 
-            currentTexture.setSurfaceTextureListener(
-                    new HomeTextureListener()
-            );
-        }
+        surfaceHolder.addCallback(new SurfaceHolder.Callback() {
 
-        // UPLOAD
+            @Override
+            public void surfaceCreated(SurfaceHolder holder) {
 
-        Button upload =
-                button("UPLOAD VIDEO");
+                currentSurface = holder.getSurface();
 
-        upload.setOnClickListener(
-                v -> selectVideo()
-        );
+                if (selectedVideoUri != null) {
 
-        // VIDEO VIEW
+                    videoHint.setText("वीडियो लोड हो रहा है...");
 
-        Button view =
-                button("VIDEO VIEW");
+                    playVideoOnSurface(
+                            currentSurface,
+                            videoHint
+                    );
+                } else {
 
-        view.setOnClickListener(v -> {
+                    videoHint.setText("कोई वीडियो चुना नहीं गया");
+                }
+            }
+
+            @Override
+            public void surfaceChanged(
+                    SurfaceHolder holder,
+                    int format,
+                    int width,
+                    int height) {
+            }
+
+            @Override
+            public void surfaceDestroyed(SurfaceHolder holder) {
+
+                if (currentSurface == holder.getSurface()) {
+                    currentSurface = null;
+                }
+
+                stopVideo();
+            }
+        });
+
+        // ---------------- UPLOAD ----------------
+
+        Button upload = button("UPLOAD / SELECT VIDEO");
+
+        root.addView(upload);
+
+        upload.setOnClickListener(v -> openVideoPicker());
+
+        // ---------------- VIDEO SCREEN ----------------
+
+        Button viewVideo = button("OPEN VIDEO SCREEN");
+
+        root.addView(viewVideo);
+
+        viewVideo.setOnClickListener(v -> {
 
             if (selectedVideoUri == null) {
 
-                toast(
-                        "पहले video upload/select करें"
-                );
+                Toast.makeText(
+                        this,
+                        "पहले वीडियो चुनें।",
+                        Toast.LENGTH_SHORT
+                ).show();
 
                 return;
             }
 
-            showVideoView();
+            showVideoScreen();
         });
 
-        // LIKE
+        // ---------------- ACTIONS ----------------
 
-        Button like =
-                button("♥ LIKE");
+        Button like = button("❤️ LIKE VIDEO");
 
-        like.setOnClickListener(
-                v -> likeVideo()
-        );
+        root.addView(like);
 
-        // COMMENT
+        like.setOnClickListener(v -> likeVideo());
 
-        Button comment =
-                button("💬 COMMENT");
+        Button comment = button("💬 COMMENT");
 
-        comment.setOnClickListener(
-                v -> showComments()
-        );
+        root.addView(comment);
 
-        // SHARE
+        comment.setOnClickListener(v -> addComment());
 
-        Button share =
-                button("↗ SHARE");
+        Button share = button("📤 SHARE VIDEO");
 
-        share.setOnClickListener(
-                v -> shareVideo()
-        );
+        root.addView(share);
 
-        // MESSENGER
+        share.setOnClickListener(v -> shareVideo());
 
-        Button messenger =
-                button("MESSENGER");
+        // ---------------- OTHER SCREENS ----------------
 
-        messenger.setOnClickListener(
-                v -> showMessenger()
-        );
+        Button messenger = button("💬 MESSENGER");
 
-        // NOTIFICATION
+        root.addView(messenger);
 
-        Button notifications =
-                button("NOTIFICATIONS");
+        messenger.setOnClickListener(v -> showMessenger());
 
-        notifications.setOnClickListener(
-                v -> showNotifications()
-        );
+        Button notifications = button("🔔 NOTIFICATIONS");
 
-        // SETTINGS
+        root.addView(notifications);
 
-        Button settings =
-                button("SETTINGS");
+        notifications.setOnClickListener(v -> showNotifications());
 
-        settings.setOnClickListener(
-                v -> showSettings()
-        );
+        Button settings = button("⚙ SETTINGS");
 
-        // USER DASHBOARD
+        root.addView(settings);
 
-        Button userDashboard =
-                button("USER DASHBOARD");
+        settings.setOnClickListener(v -> showSettings());
 
-        userDashboard.setOnClickListener(
-                v -> showUserDashboard()
-        );
+        Button userDashboard = button("👤 USER DASHBOARD");
 
-        // MY DASHBOARD
+        root.addView(userDashboard);
 
-        Button myDashboard =
-                button("MY DASHBOARD");
+        userDashboard.setOnClickListener(v -> showUserDashboard());
 
-        myDashboard.setOnClickListener(
-                v -> showMyDashboard()
-        );
+        Button myDashboard = button("📊 MY DASHBOARD");
 
-        // LOGOUT
+        root.addView(myDashboard);
 
-        Button logout =
-                button("LOGOUT");
+        myDashboard.setOnClickListener(v -> showMyDashboard());
+
+        Button logout = button("LOGOUT");
+
+        root.addView(logout);
 
         logout.setOnClickListener(v -> {
 
-            stopVideo();
-
             auth.signOut();
 
-            selectedVideoUri = null;
+            stopVideo();
 
             showLogin();
         });
 
-        setPage(root);
+        message(
+                "Viyzo local video player + Firebase account system"
+        );
     }
 
-    // =========================
+    // =========================================================
+    // VIDEO SCREEN
+    // =========================================================
+
+    private void showVideoScreen() {
+
+        page = PAGE_VIDEO;
+
+        stopVideo();
+
+        baseRoot();
+
+        title("VIYZO VIDEO");
+
+        FrameLayout frame = new FrameLayout(this);
+
+        frame.setBackgroundColor(Color.BLACK);
+
+        root.addView(
+                frame,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        dp(500)
+                )
+        );
+
+        SurfaceView surface = new SurfaceView(this);
+
+        surface.setBackgroundColor(Color.BLACK);
+
+        frame.addView(
+                surface,
+                new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                )
+        );
+
+        TextView hint = text("वीडियो लोड हो रहा है...", 15);
+
+        hint.setGravity(Gravity.CENTER);
+
+        frame.addView(
+                hint,
+                new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                )
+        );
+
+        SurfaceHolder holder = surface.getHolder();
+
+        holder.addCallback(new SurfaceHolder.Callback() {
+
+            @Override
+            public void surfaceCreated(SurfaceHolder h) {
+
+                currentSurface = h.getSurface();
+
+                if (selectedVideoUri != null) {
+
+                    playVideoOnSurface(
+                            h.getSurface(),
+                            hint
+                    );
+                }
+            }
+
+            @Override
+            public void surfaceChanged(
+                    SurfaceHolder h,
+                    int format,
+                    int width,
+                    int height) {
+            }
+
+            @Override
+            public void surfaceDestroyed(SurfaceHolder h) {
+
+                if (currentSurface == h.getSurface()) {
+                    currentSurface = null;
+                }
+
+                stopVideo();
+            }
+        });
+
+        Button back = button("← BACK TO HOME");
+
+        root.addView(back);
+
+        back.setOnClickListener(v -> showHome());
+
+        Button like = button("❤️ LIKE");
+
+        root.addView(like);
+
+        like.setOnClickListener(v -> likeVideo());
+
+        Button comment = button("💬 COMMENT");
+
+        root.addView(comment);
+
+        comment.setOnClickListener(v -> addComment());
+
+        Button share = button("📤 SHARE");
+
+        root.addView(share);
+
+        share.setOnClickListener(v -> shareVideo());
+    }
+
+    // =========================================================
     // VIDEO PICKER
-    // =========================
+    // =========================================================
 
-    private void selectVideo() {
+    private void openVideoPicker() {
 
-        Intent intent =
-                new Intent(
-                        Intent.ACTION_OPEN_DOCUMENT
-                );
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
 
-        intent.addCategory(
-                Intent.CATEGORY_OPENABLE
-        );
+        intent.setType("video/*");
 
-        intent.setType(
-                "video/*"
-        );
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
 
-        intent.addFlags(
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-        );
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-        intent.addFlags(
-                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-        );
+        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
 
-        startActivityForResult(
-                intent,
-                PICK_VIDEO
-        );
+        startActivityForResult(intent, PICK_VIDEO);
     }
 
     @Override
     protected void onActivityResult(
             int requestCode,
             int resultCode,
-            Intent data
-    ) {
+            Intent data) {
 
         super.onActivityResult(
                 requestCode,
@@ -726,109 +694,53 @@ public class MainActivity extends Activity {
                 data
         );
 
-        if (
-                requestCode == PICK_VIDEO
-                        &&
-                resultCode == RESULT_OK
-                        &&
-                data != null
-                        &&
-                data.getData() != null
-        ) {
+        if (requestCode == PICK_VIDEO &&
+                resultCode == RESULT_OK &&
+                data != null &&
+                data.getData() != null) {
 
-            selectedVideoUri =
-                    data.getData();
+            selectedVideoUri = data.getData();
 
             try {
-
-                int takeFlags =
-                        data.getFlags()
-                                &
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION;
 
                 getContentResolver()
                         .takePersistableUriPermission(
                                 selectedVideoUri,
-                                takeFlags
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
                         );
 
             } catch (Exception ignored) {
             }
 
-            toast(
-                    "Video selected successfully"
-            );
+            prefs.edit()
+                    .putString(
+                            "selected_video",
+                            selectedVideoUri.toString()
+                    )
+                    .apply();
 
             saveVideoToFirestore();
+
+            Toast.makeText(
+                    this,
+                    "वीडियो चुना गया।",
+                    Toast.LENGTH_SHORT
+            ).show();
 
             showHome();
         }
     }
 
-    // =========================
-    // HOME VIDEO PLAYER
-    // =========================
+    // =========================================================
+    // STRONG VIDEO PLAYER
+    // =========================================================
 
-    private class HomeTextureListener
-            implements TextureView.SurfaceTextureListener {
-
-        @Override
-        public void onSurfaceTextureAvailable(
-                SurfaceTexture surface,
-                int width,
-                int height
-        ) {
-
-            Surface s =
-                    new Surface(surface);
-
-            playVideo(
-                    selectedVideoUri,
-                    s,
-                    videoMessage
-            );
-        }
-
-        @Override
-        public void onSurfaceTextureSizeChanged(
-                SurfaceTexture surface,
-                int width,
-                int height
-        ) {
-        }
-
-        @Override
-        public boolean onSurfaceTextureDestroyed(
-                SurfaceTexture surface
-        ) {
-
-            stopVideo();
-
-            return true;
-        }
-
-        @Override
-        public void onSurfaceTextureUpdated(
-                SurfaceTexture surface
-        ) {
-        }
-    }
-
-    // =========================
-    // ACTUAL VIDEO PLAYER
-    // =========================
-
-    private void playVideo(
-            Uri uri,
+    private void playVideoOnSurface(
             Surface surface,
-            TextView message
-    ) {
+            TextView hint) {
 
-        if (uri == null) {
-
-            message.setText(
-                    "No video selected"
-            );
+        if (selectedVideoUri == null ||
+                surface == null) {
 
             return;
         }
@@ -838,46 +750,61 @@ public class MainActivity extends Activity {
         try {
 
             mediaPlayer =
-                    new MediaPlayer();
+                    new android.media.MediaPlayer();
+
+            mediaPlayer.setAudioStreamType(
+                    android.media.AudioManager.STREAM_MUSIC
+            );
 
             mediaPlayer.setDataSource(
                     this,
-                    uri
+                    selectedVideoUri
             );
 
-            /*
-             * IMPORTANT:
-             * Video output is sent directly
-             * to TextureView Surface.
-             */
-            mediaPlayer.setSurface(
-                    surface
-            );
+            mediaPlayer.setSurface(surface);
 
-            mediaPlayer.setLooping(
-                    true
-            );
+            mediaPlayer.setLooping(true);
 
-            mediaPlayer.setOnPreparedListener(
-                    mp -> {
+            mediaPlayer.setOnPreparedListener(mp -> {
 
-                        message.setText("");
+                try {
 
-                        mp.start();
+                    mp.setLooping(true);
 
-                        saveView();
-                    }
-            );
+                    mp.setVideoScalingMode(
+                            android.media.MediaPlayer
+                                    .VIDEO_SCALING_MODE_SCALE_TO_FIT
+                    );
+
+                    hint.setVisibility(View.GONE);
+
+                    mp.start();
+
+                } catch (Exception e) {
+
+                    hint.setVisibility(View.VISIBLE);
+
+                    hint.setText(
+                            "वीडियो शुरू नहीं हो पाया"
+                    );
+                }
+            });
+
+            mediaPlayer.setOnCompletionListener(mp -> {
+
+                try {
+                    mp.start();
+                } catch (Exception ignored) {
+                }
+            });
 
             mediaPlayer.setOnErrorListener(
                     (mp, what, extra) -> {
 
-                        message.setText(
-                                "VIDEO PLAYBACK ERROR"
-                        );
+                        hint.setVisibility(View.VISIBLE);
 
-                        toast(
-                                "Video play नहीं हो पाया"
+                        hint.setText(
+                                "इस वीडियो का format फोन में play नहीं हो रहा।"
                         );
 
                         return true;
@@ -888,174 +815,13 @@ public class MainActivity extends Activity {
 
         } catch (Exception e) {
 
-            message.setText(
-                    "VIDEO ERROR"
-            );
+            hint.setVisibility(View.VISIBLE);
 
-            toast(
-                    "Video error: "
-                            + e.getMessage()
+            hint.setText(
+                    "वीडियो खोलने में समस्या हुई।"
             );
         }
     }
-
-    // =========================
-    // VIDEO VIEW SCREEN
-    // =========================
-
-    private void showVideoView() {
-
-        stopVideo();
-
-        root = baseRoot();
-
-        addTitle("VIDEO VIEW");
-
-        FrameLayout videoBox =
-                new FrameLayout(this);
-
-        videoBox.setBackgroundColor(
-                Color.BLACK
-        );
-
-        LinearLayout.LayoutParams boxParams =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        dp(500)
-                );
-
-        root.addView(
-                videoBox,
-                boxParams
-        );
-
-        TextureView texture =
-                new TextureView(this);
-
-        FrameLayout.LayoutParams textureParams =
-                new FrameLayout.LayoutParams(
-                        -1,
-                        -1
-                );
-
-        textureParams.gravity =
-                Gravity.CENTER;
-
-        videoBox.addView(
-                texture,
-                textureParams
-        );
-
-        TextView message =
-                new TextView(this);
-
-        message.setText(
-                "Loading video..."
-        );
-
-        message.setTextColor(
-                Color.WHITE
-        );
-
-        message.setTextSize(17);
-
-        message.setGravity(
-                Gravity.CENTER
-        );
-
-        FrameLayout.LayoutParams msgParams =
-                new FrameLayout.LayoutParams(
-                        -1,
-                        -1
-                );
-
-        videoBox.addView(
-                message,
-                msgParams
-        );
-
-        texture.setSurfaceTextureListener(
-                new TextureView.SurfaceTextureListener() {
-
-                    @Override
-                    public void onSurfaceTextureAvailable(
-                            SurfaceTexture surface,
-                            int width,
-                            int height
-                    ) {
-
-                        Surface s =
-                                new Surface(
-                                        surface
-                                );
-
-                        playVideo(
-                                selectedVideoUri,
-                                s,
-                                message
-                        );
-                    }
-
-                    @Override
-                    public void onSurfaceTextureSizeChanged(
-                            SurfaceTexture surface,
-                            int width,
-                            int height
-                    ) {
-                    }
-
-                    @Override
-                    public boolean onSurfaceTextureDestroyed(
-                            SurfaceTexture surface
-                    ) {
-
-                        stopVideo();
-
-                        return true;
-                    }
-
-                    @Override
-                    public void onSurfaceTextureUpdated(
-                            SurfaceTexture surface
-                    ) {
-                    }
-                }
-        );
-
-        Button like =
-                button("♥ LIKE");
-
-        like.setOnClickListener(
-                v -> likeVideo()
-        );
-
-        Button comment =
-                button("💬 COMMENT");
-
-        comment.setOnClickListener(
-                v -> showComments()
-        );
-
-        Button share =
-                button("↗ SHARE");
-
-        share.setOnClickListener(
-                v -> shareVideo()
-        );
-
-        Button back =
-                button("← BACK HOME");
-
-        back.setOnClickListener(
-                v -> showHome()
-        );
-
-        setPage(root);
-    }
-
-    // =========================
-    // STOP VIDEO
-    // =========================
 
     private void stopVideo() {
 
@@ -1084,17 +850,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    // =========================
-    // SAVE VIDEO
-    // =========================
+    // =========================================================
+    // FIRESTORE VIDEO
+    // =========================================================
 
     private void saveVideoToFirestore() {
 
-        if (
-                auth.getCurrentUser() == null
-                        ||
-                selectedVideoUri == null
-        ) {
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null ||
+                selectedVideoUri == null) {
+
             return;
         }
 
@@ -1102,339 +868,288 @@ public class MainActivity extends Activity {
                 new HashMap<>();
 
         video.put(
-                "ownerUid",
-                auth.getCurrentUser()
-                        .getUid()
+                "uid",
+                user.getUid()
         );
 
         video.put(
-                "videoUri",
+                "email",
+                user.getEmail()
+        );
+
+        video.put(
+                "localUri",
                 selectedVideoUri.toString()
         );
 
         video.put(
                 "likes",
-                0L
+                0
         );
 
         video.put(
                 "views",
-                0L
+                0
         );
 
         video.put(
                 "createdAt",
-                FieldValue.serverTimestamp()
+                System.currentTimeMillis()
         );
 
         db.collection("videos")
-                .add(video);
+                .add(video)
+                .addOnSuccessListener(
+                        documentReference ->
+                                currentVideoId =
+                                        documentReference.getId()
+                );
     }
 
-    // =========================
-    // VIEW
-    // =========================
-
-    private void saveView() {
-
-        if (
-                auth.getCurrentUser() == null
-                        ||
-                selectedVideoUri == null
-        ) {
-            return;
-        }
-
-        Map<String, Object> view =
-                new HashMap<>();
-
-        view.put(
-                "uid",
-                auth.getCurrentUser()
-                        .getUid()
-        );
-
-        view.put(
-                "videoUri",
-                selectedVideoUri.toString()
-        );
-
-        view.put(
-                "createdAt",
-                FieldValue.serverTimestamp()
-        );
-
-        db.collection("views")
-                .add(view);
-    }
-
-    // =========================
+    // =========================================================
     // LIKE
-    // =========================
+    // =========================================================
 
     private void likeVideo() {
 
-        if (
-                auth.getCurrentUser() == null
-        ) {
+        FirebaseUser user =
+                auth.getCurrentUser();
+
+        if (user == null) {
             return;
         }
 
-        Map<String, Object> like =
-                new HashMap<>();
+        if (currentVideoId.isEmpty()) {
 
-        like.put(
-                "uid",
-                auth.getCurrentUser()
-                        .getUid()
-        );
+            Toast.makeText(
+                    this,
+                    "पहले वीडियो select करें।",
+                    Toast.LENGTH_SHORT
+            ).show();
 
-        like.put(
-                "videoUri",
-                selectedVideoUri == null
-                        ? ""
-                        : selectedVideoUri.toString()
-        );
+            return;
+        }
 
-        like.put(
-                "createdAt",
-                FieldValue.serverTimestamp()
-        );
-
-        db.collection("likes")
-                .add(like);
-
-        addNotification(
-                "Video liked"
-        );
-
-        toast(
-                "♥ Video liked"
-        );
-    }
-
-    // =========================
-    // COMMENTS
-    // =========================
-
-    private void showComments() {
-
-        root = baseRoot();
-
-        addTitle("COMMENTS");
-
-        EditText comment =
-                input("Write a comment");
-
-        Button post =
-                button("POST COMMENT");
-
-        post.setOnClickListener(v -> {
-
-            String value =
-                    comment.getText()
-                            .toString()
-                            .trim();
-
-            if (value.isEmpty()) {
-
-                toast(
-                        "Comment लिखें"
-                );
-
-                return;
-            }
-
-            if (
-                    auth.getCurrentUser()
-                            == null
-            ) {
-                return;
-            }
-
-            Map<String, Object> data =
-                    new HashMap<>();
-
-            data.put(
-                    "uid",
-                    auth.getCurrentUser()
-                            .getUid()
-            );
-
-            data.put(
-                    "text",
-                    value
-            );
-
-            data.put(
-                    "videoUri",
-                    selectedVideoUri == null
-                            ? ""
-                            : selectedVideoUri.toString()
-            );
-
-            data.put(
-                    "createdAt",
-                    FieldValue.serverTimestamp()
-            );
-
-            db.collection("comments")
-                    .add(data);
-
-            addNotification(
-                    "New comment posted"
-            );
-
-            comment.setText("");
-
-            toast(
-                    "Comment posted"
-            );
-        });
-
-        TextView comments =
-                text(
-                        "Loading comments...",
-                        16
-                );
-
-        db.collection("comments")
-                .orderBy(
-                        "createdAt",
-                        Query.Direction.DESCENDING
+        db.collection("videos")
+                .document(currentVideoId)
+                .update(
+                        "likes",
+                        com.google.firebase.firestore.FieldValue
+                                .increment(1)
                 )
-                .limit(50)
-                .get()
-                .addOnSuccessListener(
-                        snapshot -> {
+                .addOnSuccessListener(v -> {
 
-                            StringBuilder result =
-                                    new StringBuilder();
-
-                            for (
-                                    DocumentSnapshot d
-                                    : snapshot.getDocuments()
-                            ) {
-
-                                String c =
-                                        d.getString(
-                                                "text"
-                                        );
-
-                                if (c != null) {
-
-                                    result.append(
-                                            "• "
-                                    )
-                                    .append(c)
-                                    .append(
-                                            "\n\n"
-                                    );
-                                }
-                            }
-
-                            if (
-                                    result.length()
-                                            == 0
-                            ) {
-
-                                comments.setText(
-                                        "No comments yet."
-                                );
-
-                            } else {
-
-                                comments.setText(
-                                        result.toString()
-                                );
-                            }
-                        }
-                );
-
-        Button back =
-                button("← BACK HOME");
-
-        back.setOnClickListener(
-                v -> showHome()
-        );
-
-        setPage(root);
+                    Toast.makeText(
+                            this,
+                            "Liked ❤️",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                });
     }
 
-    // =========================
+    // =========================================================
+    // COMMENT
+    // =========================================================
+
+    private void addComment() {
+
+        FirebaseUser user =
+                auth.getCurrentUser();
+
+        if (user == null) {
+            return;
+        }
+
+        final EditText input =
+                new EditText(this);
+
+        input.setHint("अपना comment लिखें");
+
+        input.setTextColor(WHITE);
+
+        input.setHintTextColor(GRAY);
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("COMMENT")
+                .setView(input)
+                .setPositiveButton(
+                        "POST",
+                        (dialog, which) -> {
+
+                            String comment =
+                                    input.getText()
+                                            .toString()
+                                            .trim();
+
+                            if (comment.isEmpty()) {
+                                return;
+                            }
+
+                            Map<String, Object> data =
+                                    new HashMap<>();
+
+                            data.put(
+                                    "uid",
+                                    user.getUid()
+                            );
+
+                            data.put(
+                                    "email",
+                                    user.getEmail()
+                            );
+
+                            data.put(
+                                    "comment",
+                                    comment
+                            );
+
+                            data.put(
+                                    "videoId",
+                                    currentVideoId
+                            );
+
+                            data.put(
+                                    "createdAt",
+                                    System.currentTimeMillis()
+                            );
+
+                            db.collection("comments")
+                                    .add(data);
+
+                            Toast.makeText(
+                                    this,
+                                    "Comment posted",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+                        }
+                )
+                .setNegativeButton(
+                        "CANCEL",
+                        null
+                )
+                .show();
+    }
+
+    // =========================================================
     // SHARE
-    // =========================
+    // =========================================================
 
     private void shareVideo() {
 
+        if (selectedVideoUri == null) {
+
+            Toast.makeText(
+                    this,
+                    "पहले वीडियो चुनें।",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
         Intent share =
-                new Intent(
-                        Intent.ACTION_SEND
-                );
+                new Intent(Intent.ACTION_SEND);
 
-        share.setType(
-                "text/plain"
-        );
-
-        String video =
-                selectedVideoUri == null
-                        ? ""
-                        : selectedVideoUri.toString();
+        share.setType("video/*");
 
         share.putExtra(
-                Intent.EXTRA_TEXT,
-                "Watch this video on VIYZO\n"
-                        + video
+                Intent.EXTRA_STREAM,
+                selectedVideoUri
         );
 
-        startActivity(
-                Intent.createChooser(
-                        share,
-                        "Share Viyzo video"
-                )
+        share.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
         );
+
+        try {
+
+            startActivity(
+                    Intent.createChooser(
+                            share,
+                            "Share Viyzo Video"
+                    )
+            );
+
+        } catch (Exception e) {
+
+            Toast.makeText(
+                    this,
+                    "Share नहीं हो पाया।",
+                    Toast.LENGTH_SHORT
+            ).show();
+        }
     }
 
-    // =========================
+    // =========================================================
     // MESSENGER
-    // =========================
+    // =========================================================
 
     private void showMessenger() {
 
-        root = baseRoot();
+        stopVideo();
 
-        addTitle("MESSENGER");
+        baseRoot();
+
+        title("MESSENGER");
+
+        message(
+                "यहाँ Viyzo users को message भेज सकते हैं।"
+        );
 
         EditText receiver =
-                input("Recipient email");
+                new EditText(this);
 
-        EditText message =
-                input("Write message");
+        receiver.setHint("Receiver UID / Email");
+
+        receiver.setTextColor(WHITE);
+
+        receiver.setHintTextColor(GRAY);
+
+        root.addView(receiver);
+
+        EditText msg =
+                new EditText(this);
+
+        msg.setHint("Message");
+
+        msg.setTextColor(WHITE);
+
+        msg.setHintTextColor(GRAY);
+
+        root.addView(msg);
 
         Button send =
                 button("SEND MESSAGE");
 
+        root.addView(send);
+
         send.setOnClickListener(v -> {
+
+            FirebaseUser user =
+                    auth.getCurrentUser();
+
+            if (user == null) {
+                return;
+            }
 
             String to =
                     receiver.getText()
                             .toString()
                             .trim();
 
-            String msg =
-                    message.getText()
+            String text =
+                    msg.getText()
                             .toString()
                             .trim();
 
-            if (
-                    to.isEmpty()
-                            ||
-                    msg.isEmpty()
-            ) {
+            if (to.isEmpty() ||
+                    text.isEmpty()) {
 
-                toast(
-                        "Recipient और message डालें"
-                );
+                Toast.makeText(
+                        this,
+                        "Receiver और message भरें।",
+                        Toast.LENGTH_SHORT
+                ).show();
 
                 return;
             }
@@ -1444,66 +1159,82 @@ public class MainActivity extends Activity {
 
             data.put(
                     "fromUid",
-                    auth.getCurrentUser()
-                            .getUid()
+                    user.getUid()
             );
 
             data.put(
-                    "toEmail",
+                    "fromEmail",
+                    user.getEmail()
+            );
+
+            data.put(
+                    "to",
                     to
             );
 
             data.put(
                     "message",
-                    msg
+                    text
             );
 
             data.put(
                     "createdAt",
-                    FieldValue.serverTimestamp()
+                    System.currentTimeMillis()
             );
 
             db.collection("messages")
-                    .add(data);
+                    .add(data)
+                    .addOnSuccessListener(x -> {
 
-            addNotification(
-                    "Message sent"
-            );
+                        msg.setText("");
 
-            message.setText("");
-
-            toast(
-                    "Message sent"
-            );
+                        Toast.makeText(
+                                this,
+                                "Message sent",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                    });
         });
 
         Button back =
-                button("← BACK HOME");
+                button("← BACK");
+
+        root.addView(back);
 
         back.setOnClickListener(
                 v -> showHome()
         );
-
-        setPage(root);
     }
 
-    // =========================
+    // =========================================================
     // NOTIFICATIONS
-    // =========================
+    // =========================================================
 
     private void showNotifications() {
 
-        root = baseRoot();
+        stopVideo();
 
-        addTitle("NOTIFICATIONS");
+        baseRoot();
+
+        title("NOTIFICATIONS");
+
+        FirebaseUser user =
+                auth.getCurrentUser();
+
+        if (user == null) {
+            return;
+        }
 
         TextView list =
-                text(
-                        "Loading...",
-                        16
-                );
+                text("Loading...", 15);
+
+        root.addView(list);
 
         db.collection("notifications")
+                .whereEqualTo(
+                        "uid",
+                        user.getUid()
+                )
                 .orderBy(
                         "createdAt",
                         Query.Direction.DESCENDING
@@ -1511,416 +1242,325 @@ public class MainActivity extends Activity {
                 .limit(50)
                 .get()
                 .addOnSuccessListener(
-                        snapshot -> {
+                        snapshots -> {
 
-                            StringBuilder result =
+                            StringBuilder s =
                                     new StringBuilder();
 
-                            for (
-                                    DocumentSnapshot d
-                                    : snapshot.getDocuments()
-                            ) {
+                            for (com.google.firebase.firestore
+                                    .DocumentSnapshot d :
+                                    snapshots) {
 
-                                String n =
+                                String msg =
                                         d.getString(
                                                 "message"
                                         );
 
-                                if (n != null) {
+                                if (msg != null) {
 
-                                    result.append(
-                                            "• "
-                                    )
-                                    .append(n)
-                                    .append(
-                                            "\n\n"
-                                    );
+                                    s.append("• ")
+                                            .append(msg)
+                                            .append("\n\n");
                                 }
                             }
 
-                            if (
-                                    result.length()
-                                            == 0
-                            ) {
+                            if (s.length() == 0) {
 
                                 list.setText(
-                                        "No notifications."
+                                        "कोई notification नहीं है।"
                                 );
 
                             } else {
 
                                 list.setText(
-                                        result.toString()
+                                        s.toString()
                                 );
                             }
                         }
+                )
+                .addOnFailureListener(
+                        e ->
+                                list.setText(
+                                        "Notifications load नहीं हो सकीं।"
+                                )
                 );
 
         Button back =
-                button("← BACK HOME");
+                button("← BACK");
+
+        root.addView(back);
 
         back.setOnClickListener(
                 v -> showHome()
         );
-
-        setPage(root);
     }
 
-    private void addNotification(
-            String message
-    ) {
-
-        if (
-                auth.getCurrentUser() == null
-        ) {
-            return;
-        }
-
-        Map<String, Object> data =
-                new HashMap<>();
-
-        data.put(
-                "uid",
-                auth.getCurrentUser()
-                        .getUid()
-        );
-
-        data.put(
-                "message",
-                message
-        );
-
-        data.put(
-                "createdAt",
-                FieldValue.serverTimestamp()
-        );
-
-        db.collection("notifications")
-                .add(data);
-    }
-
-    // =========================
+    // =========================================================
     // SETTINGS
-    // =========================
+    // =========================================================
 
     private void showSettings() {
 
-        root = baseRoot();
+        stopVideo();
 
-        addTitle("SETTINGS");
+        baseRoot();
 
-        String email =
-                auth.getCurrentUser() == null
-                        ? ""
-                        : auth.getCurrentUser()
-                                .getEmail();
+        title("SETTINGS");
 
-        text(
-                "Account Email:\n"
-                        + email,
-                17
-        );
+        TextView account =
+                text("ACCOUNT SETTINGS", 20);
+
+        root.addView(account);
 
         Button logout =
                 button("LOGOUT");
 
+        root.addView(logout);
+
         logout.setOnClickListener(v -> {
 
-            stopVideo();
-
             auth.signOut();
-
-            selectedVideoUri = null;
 
             showLogin();
         });
 
         Button back =
-                button("← BACK HOME");
+                button("← BACK TO HOME");
+
+        root.addView(back);
 
         back.setOnClickListener(
                 v -> showHome()
         );
-
-        setPage(root);
     }
 
-    // =========================
+    // =========================================================
     // USER DASHBOARD
-    // =========================
+    // =========================================================
 
     private void showUserDashboard() {
 
-        root = baseRoot();
+        stopVideo();
 
-        addTitle("USER DASHBOARD");
+        baseRoot();
 
-        TextView stats =
-                text(
-                        "Loading your statistics...",
-                        17
-                );
+        title("USER DASHBOARD");
 
-        String uid =
-                auth.getCurrentUser()
-                        .getUid();
+        FirebaseUser user =
+                auth.getCurrentUser();
 
-        db.collection("views")
-                .whereEqualTo(
-                        "uid",
-                        uid
-                )
-                .get()
-                .addOnSuccessListener(
-                        views -> {
-
-                            db.collection("likes")
-                                    .whereEqualTo(
-                                            "uid",
-                                            uid
-                                    )
-                                    .get()
-                                    .addOnSuccessListener(
-                                            likes -> {
-
-                                                db.collection(
-                                                        "comments"
-                                                )
-                                                .whereEqualTo(
-                                                        "uid",
-                                                        uid
-                                                )
-                                                .get()
-                                                .addOnSuccessListener(
-                                                        comments -> {
-
-                                                            stats.setText(
-                                                                    "USER DASHBOARD\n\n"
-                                                                    +
-                                                                    "Views: "
-                                                                    +
-                                                                    views.size()
-                                                                    +
-                                                                    "\n"
-                                                                    +
-                                                                    "Likes: "
-                                                                    +
-                                                                    likes.size()
-                                                                    +
-                                                                    "\n"
-                                                                    +
-                                                                    "Comments: "
-                                                                    +
-                                                                    comments.size()
-                                                            );
-                                                        }
-                                                );
-                                            }
-                                    );
-                        }
-                );
-
-        Button back =
-                button("← BACK HOME");
-
-        back.setOnClickListener(
-                v -> showHome()
-        );
-
-        setPage(root);
-    }
-
-    // =========================
-    // MY / OWNER DASHBOARD
-    // =========================
-
-    private void showMyDashboard() {
-
-        root = baseRoot();
-
-        addTitle("MY DASHBOARD");
-
-        TextView stats =
-                text(
-                        "Loading Viyzo statistics...",
-                        17
-                );
-
-        db.collection("users")
-                .get()
-                .addOnSuccessListener(
-                        users -> {
-
-                            db.collection("videos")
-                                    .get()
-                                    .addOnSuccessListener(
-                                            videos -> {
-
-                                                db.collection(
-                                                        "views"
-                                                )
-                                                .get()
-                                                .addOnSuccessListener(
-                                                        views -> {
-
-                                                            db.collection(
-                                                                    "likes"
-                                                            )
-                                                            .get()
-                                                            .addOnSuccessListener(
-                                                                    likes -> {
-
-                                                                        db.collection(
-                                                                                "comments"
-                                                                        )
-                                                                        .get()
-                                                                        .addOnSuccessListener(
-                                                                                comments -> {
-
-                                                                                    stats.setText(
-                                                                                            "VIYZO OWNER DASHBOARD\n\n"
-                                                                                            +
-                                                                                            "Users: "
-                                                                                            +
-                                                                                            users.size()
-                                                                                            +
-                                                                                            "\n\n"
-                                                                                            +
-                                                                                            "Videos: "
-                                                                                            +
-                                                                                            videos.size()
-                                                                                            +
-                                                                                            "\n\n"
-                                                                                            +
-                                                                                            "Views: "
-                                                                                            +
-                                                                                            views.size()
-                                                                                            +
-                                                                                            "\n\n"
-                                                                                            +
-                                                                                            "Likes: "
-                                                                                            +
-                                                                                            likes.size()
-                                                                                            +
-                                                                                            "\n\n"
-                                                                                            +
-                                                                                            "Comments: "
-                                                                                            +
-                                                                                            comments.size()
-                                                                                    );
-                                                                                }
-                                                                        );
-                                                                    }
-                                                            );
-                                                        }
-                                                );
-                                            }
-                                    );
-                        }
-                );
-
-        Button refresh =
-                button("REFRESH");
-
-        refresh.setOnClickListener(
-                v -> showMyDashboard()
-        );
-
-        Button back =
-                button("← BACK HOME");
-
-        back.setOnClickListener(
-                v -> showHome()
-        );
-
-        setPage(root);
-    }
-
-    // =========================
-    // USER PROFILE
-    // =========================
-
-    private void ensureUserProfile() {
-
-        if (
-                auth.getCurrentUser() == null
-        ) {
+        if (user == null) {
             return;
         }
 
-        String uid =
-                auth.getCurrentUser()
-                        .getUid();
+        TextView info =
+                text(
+                        "Email: " +
+                        user.getEmail(),
+                        17
+                );
+
+        root.addView(info);
+
+        TextView stats =
+                text(
+                        "Loading profile...",
+                        16
+                );
+
+        root.addView(stats);
 
         db.collection("users")
-                .document(uid)
+                .document(user.getUid())
                 .get()
                 .addOnSuccessListener(
-                        document -> {
+                        doc -> {
 
-                            if (!document.exists()) {
+                            if (doc.exists()) {
 
-                                Map<String, Object>
-                                        user =
-                                        new HashMap<>();
+                                String name =
+                                        doc.getString(
+                                                "name"
+                                        );
 
-                                user.put(
-                                        "uid",
-                                        uid
+                                Long followers =
+                                        doc.getLong(
+                                                "followers"
+                                        );
+
+                                Long following =
+                                        doc.getLong(
+                                                "following"
+                                        );
+
+                                if (followers == null) {
+                                    followers = 0L;
+                                }
+
+                                if (following == null) {
+                                    following = 0L;
+                                }
+
+                                stats.setText(
+                                        "Name: " +
+                                        name +
+                                        "\n\nFollowers: " +
+                                        followers +
+                                        "\nFollowing: " +
+                                        following
                                 );
 
-                                user.put(
-                                        "name",
-                                        auth.getCurrentUser()
-                                                .getEmail()
-                                );
+                            } else {
 
-                                user.put(
-                                        "email",
-                                        auth.getCurrentUser()
-                                                .getEmail()
+                                stats.setText(
+                                        "Profile नहीं मिला।"
                                 );
-
-                                user.put(
-                                        "followers",
-                                        0L
-                                );
-
-                                user.put(
-                                        "following",
-                                        0L
-                                );
-
-                                user.put(
-                                        "createdAt",
-                                        FieldValue.serverTimestamp()
-                                );
-
-                                db.collection("users")
-                                        .document(uid)
-                                        .set(user);
                             }
                         }
                 );
+
+        Button back =
+                button("← BACK TO HOME");
+
+        root.addView(back);
+
+        back.setOnClickListener(
+                v -> showHome()
+        );
     }
 
-    // =========================
+    // =========================================================
+    // MY DASHBOARD
+    // =========================================================
+
+    private void showMyDashboard() {
+
+        stopVideo();
+
+        baseRoot();
+
+        title("MY DASHBOARD");
+
+        FirebaseUser user =
+                auth.getCurrentUser();
+
+        if (user == null) {
+            return;
+        }
+
+        TextView stats =
+                text(
+                        "Loading dashboard...",
+                        16
+                );
+
+        root.addView(stats);
+
+        db.collection("videos")
+                .whereEqualTo(
+                        "uid",
+                        user.getUid()
+                )
+                .get()
+                .addOnSuccessListener(
+                        snapshots -> {
+
+                            int videos =
+                                    snapshots.size();
+
+                            long likes = 0;
+
+                            long views = 0;
+
+                            for (
+                                    com.google.firebase.firestore
+                                            .DocumentSnapshot d :
+                                    snapshots
+                            ) {
+
+                                Long l =
+                                        d.getLong("likes");
+
+                                Long v =
+                                        d.getLong("views");
+
+                                if (l != null) {
+                                    likes += l;
+                                }
+
+                                if (v != null) {
+                                    views += v;
+                                }
+                            }
+
+                            stats.setText(
+                                    "My Videos: " +
+                                    videos +
+                                    "\n\nLikes: " +
+                                    likes +
+                                    "\nViews: " +
+                                    views
+                            );
+                        }
+                )
+                .addOnFailureListener(
+                        e ->
+                                stats.setText(
+                                        "Dashboard load नहीं हुआ।"
+                                )
+                );
+
+        Button back =
+                button("← BACK TO HOME");
+
+        root.addView(back);
+
+        back.setOnClickListener(
+                v -> showHome()
+        );
+    }
+
+    // =========================================================
+    // BACK BUTTON
+    // =========================================================
+
+    @Override
+    public void onBackPressed() {
+
+        if (page == PAGE_VIDEO) {
+
+            showHome();
+
+            return;
+        }
+
+        if (auth.getCurrentUser() != null) {
+
+            showHome();
+
+            return;
+        }
+
+        super.onBackPressed();
+    }
+
+    // =========================================================
     // LIFECYCLE
-    // =========================
+    // =========================================================
 
     @Override
     protected void onPause() {
 
         super.onPause();
 
-        if (
-                mediaPlayer != null
-                        &&
-                mediaPlayer.isPlaying()
-        ) {
+        if (mediaPlayer != null) {
 
             try {
-                mediaPlayer.pause();
+
+                if (mediaPlayer.isPlaying()) {
+                    mediaPlayer.pause();
+                }
+
             } catch (Exception ignored) {
             }
         }
@@ -1935,9 +1575,7 @@ public class MainActivity extends Activity {
 
             try {
 
-                if (!mediaPlayer.isPlaying()) {
-                    mediaPlayer.start();
-                }
+                mediaPlayer.start();
 
             } catch (Exception ignored) {
             }
@@ -1952,16 +1590,17 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    @Override
-    public void onBackPressed() {
+    // =========================================================
+    // HELPERS
+    // =========================================================
 
-        if (auth.getCurrentUser() != null) {
+    private int dp(int value) {
 
-            showHome();
+        float density =
+                getResources()
+                        .getDisplayMetrics()
+                        .density;
 
-        } else {
-
-            super.onBackPressed();
-        }
+        return (int) (value * density + 0.5f);
     }
 }
