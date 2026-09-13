@@ -57,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
     private Uri selectedVideo;
     private String currentUid;
 
-    private final ActivityResultLauncher<String> videoPicker =
+    private final ActivityResultLauncher<String[]> videoPicker =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
                 if (uri != null) {
                     try {
