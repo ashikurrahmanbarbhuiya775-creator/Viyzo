@@ -11,15 +11,12 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
-import android.view.Surface;
-import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.media.MediaPlayer;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -27,6 +24,10 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
+
+import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
@@ -49,8 +50,8 @@ public class MainActivity extends AppCompatActivity {
     private FirebaseAuth auth;
     private FirebaseFirestore db;
     private LinearLayout root;
-    private TextureView videoView;
-    private MediaPlayer mediaPlayer;
+    private PlayerView playerView;
+    private ExoPlayer player;
     private Uri selectedVideo;
     private String currentUid;
 
@@ -59,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
                 if (uri != null) {
                     selectedVideo = uri;
                     saveVideoMetadata();
+                    showHome();
                     ensureVideoViewAndPlay();
                     toast("Video selected");
                 }
@@ -198,12 +200,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showHome() {
+        // Rebuild the home screen cleanly. The player is recreated only when
+        // a video is actually selected, which keeps login/home stable.
+        releasePlayer();
+
         root = baseRoot();
         addTitle("VIYZO");
         addLabel("Welcome to VIYZO");
 
-        // Keep login/home stable: create the video surface only after a video is selected.
-        videoView = null;
         addLabel("Video preview will appear here after you select a video.");
 
         Button select = button("SELECT / UPLOAD VIDEO");
@@ -216,7 +220,6 @@ public class MainActivity extends AppCompatActivity {
                 toast("First select a video");
                 return;
             }
-            showHome();
             ensureVideoViewAndPlay();
         });
         root.addView(openVideo);
@@ -240,7 +243,7 @@ public class MainActivity extends AppCompatActivity {
         Button delete = button("DELETE SELECTED VIDEO");
         delete.setOnClickListener(v -> {
             selectedVideo = null;
-            stopVideo();
+            releasePlayer();
             showHome();
             toast("Selected video removed from this screen");
         });
@@ -276,7 +279,7 @@ public class MainActivity extends AppCompatActivity {
 
         Button logout = button("LOGOUT");
         logout.setOnClickListener(v -> {
-            stopVideo();
+            releasePlayer();
             auth.signOut();
             currentUid = null;
             selectedVideo = null;
@@ -289,61 +292,50 @@ public class MainActivity extends AppCompatActivity {
 
     private void ensureVideoViewAndPlay() {
         if (selectedVideo == null || root == null) return;
-        if (videoView != null) {
-            if (videoView.isAvailable()) playSelectedVideo(selectedVideo);
-            return;
+
+        // PlayerView is created AFTER setContentView(), so it is attached to
+        // the real window before ExoPlayer starts rendering.
+        if (playerView == null) {
+            playerView = new PlayerView(this);
+            playerView.setUseController(true);
+            playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
+            playerView.setKeepContentOnPlayerReset(true);
+
+            LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(
+                    -1, 650);
+            vp.setMargins(0, 15, 0, 15);
+
+            // Put the video directly in the home layout, not inside another
+            // custom TextureView/Surface wrapper. PlayerView uses SurfaceView
+            // by default, which is the recommended Media3 surface.
+            root.addView(playerView, 2, vp);
         }
 
-        videoView = new TextureView(this);
-        videoView.setBackgroundColor(Color.BLACK);
-        videoView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
-            @Override public void onSurfaceTextureAvailable(android.graphics.SurfaceTexture surface, int width, int height) {
-                playSelectedVideo(selectedVideo);
-            }
-            @Override public void onSurfaceTextureSizeChanged(android.graphics.SurfaceTexture surface, int width, int height) {}
-            @Override public boolean onSurfaceTextureDestroyed(android.graphics.SurfaceTexture surface) {
-                stopVideo();
-                return true;
-            }
-            @Override public void onSurfaceTextureUpdated(android.graphics.SurfaceTexture surface) {}
-        });
+        releasePlayerOnly();
 
-        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(-1, 520);
-        vp.setMargins(0, 15, 0, 15);
-        // Insert video preview just below the welcome label.
-        root.addView(videoView, 2, vp);
+        player = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(player);
+
+        MediaItem item = MediaItem.fromUri(selectedVideo);
+        player.setMediaItem(item);
+        player.setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_ONE);
+        player.setPlayWhenReady(true);
+        player.prepare();
     }
 
-    private void playSelectedVideo(Uri uri) {
-        if (uri == null || videoView == null || !videoView.isAvailable()) return;
-        try {
-            stopVideo();
-            mediaPlayer = new MediaPlayer();
-            mediaPlayer.setDataSource(this, uri);
-            Surface surface = new Surface(videoView.getSurfaceTexture());
-            mediaPlayer.setSurface(surface);
-            mediaPlayer.setOnPreparedListener(mp -> {
-                mp.setLooping(true);
-                mp.start();
-            });
-            mediaPlayer.setOnErrorListener((mp, what, extra) -> {
-                toast("Video playback failed: " + what + "/" + extra);
-                return true;
-            });
-            mediaPlayer.prepareAsync();
-        } catch (Exception e) {
-            toast("Video failed: " + e.getMessage());
+    private void releasePlayerOnly() {
+        if (playerView != null) {
+            playerView.setPlayer(null);
+        }
+        if (player != null) {
+            player.release();
+            player = null;
         }
     }
 
-    private void stopVideo() {
-        if (mediaPlayer != null) {
-            try { mediaPlayer.setSurface(null); } catch (Exception ignored) {}
-            try { mediaPlayer.stop(); } catch (Exception ignored) {}
-            try { mediaPlayer.reset(); } catch (Exception ignored) {}
-            try { mediaPlayer.release(); } catch (Exception ignored) {}
-            mediaPlayer = null;
-        }
+    private void releasePlayer() {
+        releasePlayerOnly();
+        playerView = null;
     }
 
     private void saveVideoMetadata() {
@@ -484,37 +476,6 @@ public class MainActivity extends AppCompatActivity {
         send.putExtra(Intent.EXTRA_STREAM, selectedVideo);
         send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivity(Intent.createChooser(send, "Share video with"));
-    }
-
-    private void showAdminDashboard() {
-        if (auth.getCurrentUser() == null) {
-            toast("Please login first");
-            return;
-        }
-
-        root = baseRoot();
-        addTitle("VIYZO ADMIN DASHBOARD");
-        addLabel("Loading dashboard...");
-        setContentView(wrap());
-
-        db.collection("users").get().addOnSuccessListener(users -> {
-            int userCount = users.size();
-            db.collection("videos").get().addOnSuccessListener(videos -> {
-                int videoCount = videos.size();
-                db.collection("reports").get().addOnSuccessListener(reports -> {
-                    root = baseRoot();
-                    addTitle("VIYZO ADMIN DASHBOARD");
-                    addLabel("Users: " + userCount);
-                    addLabel("Videos: " + videoCount);
-                    addLabel("Reports: " + reports.size());
-
-                    Button back = button("BACK TO HOME");
-                    back.setOnClickListener(v -> showHome());
-                    root.addView(back);
-                    setContentView(wrap());
-                }).addOnFailureListener(e -> toast("Reports load failed: " + e.getMessage()));
-            }).addOnFailureListener(e -> toast("Videos load failed: " + e.getMessage()));
-        }).addOnFailureListener(e -> toast("Users load failed: " + e.getMessage()));
     }
 
     private void showProfile() {
